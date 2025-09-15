@@ -1,0 +1,50 @@
+<html>
+    <head>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <link rel="stylesheet" href="{{ url_for('static', filename='/css/clim_chart.css') }}">
+        <script src="{{ url_for('static', filename='/js/clim_chart.js')}}"></script>
+    </head>
+    <body>
+        <div class="dashboard">
+            <div class="ctrlPanel">
+                    <div class="control">
+                        <label class="title">From</label>
+                        <input type="text" id="yearFrom" value="50" class="year" readonly>
+                        <input type="range" min={{yearInit}} max={{yearEnd}} value={{yearInit}} class="slider" id="yearFromSlider">
+                        <div class="scale">
+                            <span>{{yearInit}}</span>
+                            <span>{{yearEnd}}</span>
+                        </div>
+                        <input type="text" id="monthFrom" value="" class="month" readonly>
+                        <input type="range" min="0" max="11" value="0" class="slider" id="monthFromSlider">
+                        <div class="scale">
+                            <span>January</span>
+                            <span>December</span>
+                        </div>
+                    </div>
+                    <div class="control">
+                        <label class="title">To</label>
+                        <input type="text" id="yearTo" value="50" class="year" readonly>
+                        <input type="range" min={{yearInit}} max={{yearEnd}} value={{yearInit}} class="slider" id="yearToSlider">
+                        <div class="scale">
+                            <span>{{yearInit}}</span>
+                            <span>{{yearEnd}}</span>
+                        </div>
+                        <input type="text" id="monthTo" value="" class="month" readonly>
+                        <input type="range" min="0" max="11" value="0" class="slider" id="monthToSlider">
+                        <div class="scale">
+                            <span>January</span>
+                            <span>December</span>
+                        </div>
+                    </div>
+                    <button class="setButton" id="seeButton">See Data</button>
+            </div>
+            <div class="chart">
+                <canvas id="myChart" style="background-color: rgb(243, 243, 243);"></canvas>
+            </div>
+        </div>
+        <script>
+            createElements("{{lat}}","{{lon}}","{{yearInit}}","{{yearEnd}}","{{table}}");
+        </script>
+    </body>
+</html>

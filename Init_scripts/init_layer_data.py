@@ -1,15 +1,24 @@
+import configparser
+import os
 import psycopg2
 import csv
 from datetime import datetime
 import numpy as np
 import xarray as xr
 
+# Get the path to config.ini
+config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.ini')
+
+# Read the config file
+config = configparser.ConfigParser()
+config.read(config_path)
+
 # DBConnection parameters PostgreSQL
-DB_HOST = "127.0.0.1"
-DB_PORT = "5432"
-DB_NAME = "droughts"
-DB_USER = "postgres"
-DB_PASSWORD = "postgres"
+DB_HOST = config.get('database', 'host')
+DB_PORT = config.get('database', 'port')
+DB_NAME = config.get('database', 'name')
+DB_USER = config.get('database', 'user')
+DB_PASSWORD = config.get('database', 'password')    
 
 # Data parameters
 TABLE_NAME = 'era5_ecowas'

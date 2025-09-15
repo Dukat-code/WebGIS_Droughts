@@ -1,0 +1,64 @@
+.dashboard{
+    display: flex;
+}
+.ctrlPanel {
+    width: 30%;
+    height: 80%;
+}
+.chart {
+    width: 60%;
+    height: 100%;
+}
+.title{
+    display: block;
+    text-align:center;
+    margin-bottom: 20px;
+    margin-top: 10px;
+    font-weight: bold;
+}
+.year{
+    display: block;
+    width: 15%;
+    margin: auto;
+    margin-bottom: 8px;
+    text-align: center;
+}
+.month{
+    display: block;
+    width: 20%;
+    margin: auto;
+    margin-bottom: 8px;
+    text-align: center;
+}
+.slider{
+    width: 100%;
+}
+
+.scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+}
+
+.scale span {
+    position: relative;
+}
+
+.control{
+    width: 95%;
+}
+
+.setButton{
+    display: block;
+    background-color: rgb(88, 86, 86);
+    border: none;
+    color: white;
+    padding: 20px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 16px;
+    margin: 4px 2px;
+    border-radius: 12px;
+    margin: auto;
+    margin-top: 25px;
+}

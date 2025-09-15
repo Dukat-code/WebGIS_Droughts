@@ -16,7 +16,7 @@ LAYER_NAME = "droughts:era5_ecowas_data_view"
 GRIDSET_ID = "WebMercatorQuad"
 FORMAT = "image/png"
 ZOOM_START = 3
-ZOOM_STOP = 9
+ZOOM_STOP = 8
 THREAD_COUNT = 4
 
 # Consulta SQL para obtener las fechas
@@ -68,6 +68,20 @@ def seed_tiles_for_date(date_str):
 
 def main():
     dates = get_dates_from_db()
+    """
+    dates = [
+                "1991-01-01",
+                "1991-06-01",
+                "2001-01-01",
+                "2001-06-01",
+                "2011-01-01",
+                "2011-06-01",
+                "2020-01-01",
+                "2011-06-01",
+                "2025-01-01",
+                "2025-06-01"
+            ] # Example dates for testing
+    """
     for date_str in dates:
         seed_tiles_for_date(date_str)
 
