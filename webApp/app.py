@@ -92,5 +92,20 @@ def clim_chart(layer, lat, lon, year_init, year_end):
     table = get_key_config(layer).get('table')
     return render_template('clim_chart.html',lat=lat,lon=lon,yearInit=year_init,yearEnd=year_end,table=table)
 
+@app.route('/main_map')
+def main_map():
+    map_config = get_key_config('map')
+
+    # Get all layers config
+    layers = {}
+    layer_names = map_config["layers"].split(',')
+    print(layer_names)
+    for layer_name in layer_names:
+        layer = get_key_config(layer_name)
+        layers[layer_name] = layer
+    
+    map_config['layers'] = layers
+    return render_template('main_map.html', map_config=map_config)
+
 if __name__ == "__main__":
         app.run(host="0.0.0.0",debug=True)
