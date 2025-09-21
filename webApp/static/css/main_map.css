@@ -309,3 +309,56 @@ body {
     padding: 0;
     background: transparent;
 }
+
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(107, 130, 153, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.modal-container {
+    width: 97vw;
+    height: 97vh;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(44,62,80,0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #2b3e50;
+    color: #fff;
+    padding: 16px;
+    font-size: 1.2em;
+}
+
+.modal-title {
+    font-weight: bold;
+}
+
+.modal-close-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 2em;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modal-content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    background: #f5f6fa;
+}

@@ -2,8 +2,10 @@ class Map {
     map;
 
     constructor(cfg, name) {
+        // Initialize map
         console.log("Map config:", cfg);
         this.layers = {};
+        this.activeDate = null;
         this.map = L.map(name, {
             zoomControl: true,
             scrollWheelZoom: true,
@@ -36,6 +38,7 @@ class Map {
 
         this.timeline = new TimelineWidget({
             map: this.map,
+            parent: this,
             dates: availableDates
         });
         
@@ -51,9 +54,8 @@ class Map {
                 cfg.layers[layerName].dateformat || 'yyyy-mm-dd'
             )
         }
-        
 
-
+        // Layer control widget
         const layersByTopic = {
             precipitation: {
                 "Layer 1": { 
@@ -82,12 +84,69 @@ class Map {
                         title: "Layers", 
                         position: { top: "24px", left: "24px" },
                         map: this.map,
+                        parent: this,
                         timeline: this.timeline
                     }, 
                     layersByTopic
                 );
 
+        // Feature info control
+        this.setFeatureInfoControl();
+
         
+    }
+
+    setFeatureInfoControl() {
+        // feature info
+        this.infoActive = false;
+        const infoControl = L.control({position: 'topright'});
+
+        infoControl.onAdd = (map) => {
+            const div = L.DomUtil.create('div', 'info-toggle-control');
+            div.innerHTML = `<button id="info-toggle-btn" title="Toggle Info Service" style="
+                background: #888;
+                color: #fff;
+                border: none;
+                border-radius: 4px;
+                font-size: 1.2em;
+                padding: 8px 12px;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(44,62,80,0.08);
+            ">
+                &#9432;             
+            </button>`;
+            // Prevent map interactions when clicking the button
+            L.DomEvent.disableClickPropagation(div);
+            return div;
+        };
+
+        infoControl.addTo(this.map);
+
+        // Add event listener for the button
+        setTimeout(() => {
+            const btn = document.getElementById('info-toggle-btn');
+            if (btn) {
+                btn.onclick = () => {
+                    // Check if there are any layers on the map
+                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && layer.timeseries);
+                    if (!hasAnyLayer) return;
+                    this.infoActive = !this.infoActive;
+                    btn.style.background = this.infoActive ? "#2b3e50" : "#888";
+                    // Change map cursor
+                    const mapDiv = document.getElementById('map');
+                    if (mapDiv) {
+                        mapDiv.style.cursor = this.infoActive ? "crosshair" : "";
+                    }
+                };
+            }
+        }, 100);
+        this.map.on('click', (e) => {
+            if(!this.infoActive) return;
+            // Get clicked coordinates
+            const latlng = e.latlng;
+            // Call your info function
+            this.getFeatureInfo(latlng);
+        });
     }
 
     addLayer(name, url, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
@@ -107,6 +166,64 @@ class Map {
 
         this.layers[name] = layer;
     }
+
+    getFeatureInfo(latlng) {
+        const lat = latlng.lat.toFixed(4);
+        const lon = latlng.lng.toFixed(4);
+        const date = this.activeDate;
+        const activeLayer = Object.keys(this.layers).find(layerName => this.map.hasLayer(this.layers[layerName]) && this.layers[layerName].timeseries);
+        console.log(`Fetching info for ${activeLayer} at (${lat}, ${lon}) on ${date}`);
+        if(!activeLayer) {
+            alert('No active time series layer selected.');
+            return;
+        }
+        fetch(`/get_feature_info/${activeLayer}/${lat}/${lon}/${date}`)
+            .then(response => response.json())
+            .then(data => {
+                // Display the feature info (customize as needed)
+                let info = `Info for ${activeLayer} at (${lat}, ${lon}) on ${date}:\n`;
+                // Extract the value from the response (adjust as needed)
+                const value = data.value || 'No value found';
+
+                // Create popup content with value and link
+                const popupContent = `
+                    <div>
+                        ${info}<br>
+                        <strong>Value:</strong> ${value}<br>
+                        <button id="modal-open-btn" title="Open in Modal">Open chart</button>
+                    </div>
+                `;
+
+                // Open popup at the clicked location
+                L.popup()
+                    .setLatLng(latlng)
+                    .setContent(popupContent)
+                    .openOn(this.map);
+                
+                // Add event listener to the button after the popup is rendered
+                setTimeout(() => {
+                    let title = `Data for ${activeLayer} at (${lat}, ${lon})`;
+                    const btn = document.getElementById('modal-open-btn');
+                    if (btn) {
+                        btn.onclick = () => {
+                            this.openModal(title, `http://localhost:5000/clim_chart/${activeLayer}/${lat}/${lon}/1991/2024`);
+                        };
+                    }
+                }, 100);
+            })
+            .catch(error => {
+                console.error('Error fetching feature info:', error);
+            });
+        
+    }
+
+    openModal(title, url) {
+    const modal = new ModalWidget({
+        title: title,
+        content: `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`
+    });
+    modal.open();
+}
 }
 
 class Widget {
@@ -157,6 +274,7 @@ class LayerWidget extends Widget {
     constructor(options, layersByTopic) {
         super(options);
         this.map = options.map;
+        this.parent = options.parent;
         this.timeline = options.timeline;
         this.layersByTopic = layersByTopic; // { topic: { layerName: {active, opacity, layerObj} } }
         this.topics = Object.keys(layersByTopic);
@@ -214,7 +332,7 @@ class LayerWidget extends Widget {
                             const otherLayerName = cb.getAttribute('data-layer');
                             const otherLayer = layers[otherLayerName];
                             if (otherLayer && otherLayer.layerObj) {
-                                this.map.removeLayer(otherLayer.layerObj);
+                                this.removeLayer(otherLayer.layerObj);
                             }
                         }
                     });
@@ -224,12 +342,14 @@ class LayerWidget extends Widget {
                         layer.layerObj.addTo(this.map);
                         if(layer.layerObj.timeseries){
                             this.timeline.setActiveLayer(layer.layerObj);
+                        } else {   
+                            this.timeline.setActiveLayer(null);
                         }
                     }
                 } else {
                     // Remove the layer if unchecked
                     if (layer.layerObj) {
-                        this.map.removeLayer(layer.layerObj);
+                        this.removeLayer(layer.layerObj);
                         if(layer.layerObj.timeseries){
                             this.timeline.setActiveLayer(null);
                         }
@@ -271,6 +391,15 @@ class LayerWidget extends Widget {
             this.contentDiv.appendChild(wrapper);
         }
     }
+
+    removeLayer(layer) {
+        const btn = document.getElementById('info-toggle-btn');
+        if (btn && this.parent.infoActive) {
+            btn.click(); // Deactivate info mode if active
+        }
+        this.map.removeLayer(layer);
+        this.parent.activeDate = null;
+    }
 }
 
 class TimelineWidget extends Widget {
@@ -279,12 +408,14 @@ class TimelineWidget extends Widget {
         options.title = options.title || '';
         super(options);
 
+        this.map = options.map;
+        this.parent = options.parent;
         this.dates = options.dates || []; // Array of date strings
+        this.parent.activeDate = this.dates.length > 0 ? this.dates[0] : null;
         this.currentIndex = 0;
         this.isPlaying = false;
         this.interval = null;
 
-        this.map = options.map || null;
         this.activeLayer = null;
         this.dateFormat = options.dateFormat || 'yyyy-mm-dd';
 
@@ -380,12 +511,14 @@ class TimelineWidget extends Widget {
     }
 
     updateElements() {
+        this.parent.activeDate = this.dates[this.currentIndex];
         this.updateDateLabel();
         this.updateLayer();
     }
 
     updateLayer() {
         const date = this.dates[this.currentIndex];
+        this.parent.activeDate = date;
         const layer = this.activeLayer
         console.log("Updating layer for date:", this.dates[this.currentIndex]);
         if (this.map.hasLayer(layer) && 
@@ -449,5 +582,54 @@ class TimelineWidget extends Widget {
                 this.map.invalidateSize();
             }
         }
+    }
+}
+
+class ModalWidget {
+    constructor(options) {
+        this.id = options.id || `modal-${Math.random().toString(36).substr(2, 9)}`;
+        this.title = options.title || '';
+        this.content = options.content || '';
+        this.createModal();
+    }
+
+    createModal() {
+        // Overlay
+        this.overlay = document.createElement('div');
+        this.overlay.className = 'modal-overlay';
+        this.overlay.id = `${this.id}-overlay`;
+
+        // Modal container
+        this.container = document.createElement('div');
+        this.container.className = 'modal-container';
+        this.container.id = this.id;
+
+        // Header with close button
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        header.innerHTML = `
+            <span class="modal-title">${this.title}</span>
+            <button class="modal-close-btn" title="Close">&times;</button>
+        `;
+        header.querySelector('.modal-close-btn').onclick = () => this.close();
+
+        // Content
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'modal-content';
+        contentDiv.innerHTML = this.content;
+
+        this.container.appendChild(header);
+        this.container.appendChild(contentDiv);
+        this.overlay.appendChild(this.container);
+
+        document.body.appendChild(this.overlay);
+    }
+
+    open() {
+        this.overlay.style.display = 'flex';
+    }
+
+    close() {
+        this.overlay.style.display = 'none';
     }
 }

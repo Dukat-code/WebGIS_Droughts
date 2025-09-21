@@ -87,6 +87,9 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,table){
         draw_chart(data,avg,stdPlus,stdMinus,labels);
         console.log(monthTo+1);
         console.log(monthNames.slice(1,10));
+        document.getElementById("downloadCSVBtn").onclick = () => {
+            downloadCSV(r);
+        };
     })
 }
 
@@ -140,4 +143,23 @@ function draw_chart(data,avg,stdPlus,stdMinus,labels)
         }
         }
     });
+}
+
+function downloadCSV(data) {
+    let csvContent = "Year,Month,Data\n";
+    for (let i = 0; i < data.years.length; i++) {
+        for (let j = 0; j < data.sample[i].length; j++) {
+            csvContent += `${data.years[i]},${j+1},${data.sample[i][j]}\n`;
+        }
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "climate_data.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
