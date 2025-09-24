@@ -71,7 +71,7 @@ Thumbs.db
 *.nc
 
 # Config files (if you want to ignore local config)
-config/config.ini
+#config/config.ini
 
 # Ignore compiled Cython files
 *.c

@@ -1,3 +1,13 @@
+/**
+ * main_map.js
+ * 
+ * JavaScript code to initialize and manage the interactive map,
+ * including layers, timeline, and widgets.
+ */
+
+/**
+ * Map class to handle map initialization and layer management
+ */
 class Map {
     map;
 
@@ -37,6 +47,7 @@ class Map {
             ];
 
         this.timeline = new TimelineWidget({
+            title: "Time Line",
             map: this.map,
             parent: this,
             dates: availableDates
@@ -47,6 +58,7 @@ class Map {
             this.addLayer(
                 layerName,
                 cfg.layers[layerName].url,
+                cfg.layers[layerName].info || '',
                 cfg.layers[layerName].active === 'true',
                 cfg.layers[layerName].opacity,
                 cfg.layers[layerName].tms === 'true',
@@ -58,19 +70,19 @@ class Map {
         // Layer control widget
         const layersByTopic = {
             precipitation: {
-                "Layer 1": { 
+                "era5_ecowas": { 
                     active: true, 
                     opacity: 1, 
                     layerObj: this.layers["era5_ecowas"]
                 },
-                "Layer 2": { 
+                "era5_ecowas_2025_notime": { 
                     active: false, 
                     opacity: 0.5, 
                     layerObj: this.layers["era5_ecowas_2025_notime"] 
                 }
             },
             temperature: {
-                "Layer 1": { 
+                "era5_ecowas": { 
                     active: true, 
                     opacity: 1, 
                     layerObj: this.layers["era5_ecowas"]
@@ -149,11 +161,12 @@ class Map {
         });
     }
 
-    addLayer(name, url, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
+    addLayer(name, url, info, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
         const layer = L.tileLayer(url, {
             opacity: opacity,
             tms: tms
         });
+        layer.info = info || '';
         layer.timeseries = time;
         if(time){
             layer.dateFormat = dateFormat
@@ -218,14 +231,17 @@ class Map {
     }
 
     openModal(title, url) {
-    const modal = new ModalWidget({
-        title: title,
-        content: `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`
-    });
-    modal.open();
-}
+        const modal = new ModalWidget({
+            title: title,
+            content: `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`
+        });
+        modal.open();
+    }
 }
 
+/**
+ * Base Widget class
+ */
 class Widget {
     constructor(options) {
         this.id = options.id || `widget-${Math.random().toString(36).substr(2, 9)}`;
@@ -270,6 +286,9 @@ class Widget {
     }
 }
 
+/**
+ * Layer control widget
+ */
 class LayerWidget extends Widget {
     constructor(options, layersByTopic) {
         super(options);
@@ -277,6 +296,7 @@ class LayerWidget extends Widget {
         this.parent = options.parent;
         this.timeline = options.timeline;
         this.layersByTopic = layersByTopic; // { topic: { layerName: {active, opacity, layerObj} } }
+        console.log(this.layersByTopic);
         this.topics = Object.keys(layersByTopic);
         this.selectedTopic = this.topics[0];
         this.renderTopicDropdown();
@@ -364,6 +384,28 @@ class LayerWidget extends Widget {
             line1.appendChild(checkbox);
             line1.appendChild(label);
 
+            // Description line (from config.ini info field)
+            const desc = document.createElement('div');
+            desc.className = 'layer-description';
+            desc.innerHTML = layer.layerObj.info || '';
+
+            // Information link
+            const infoLink = document.createElement('a');
+            infoLink.href = "#";
+            infoLink.className = 'layer-info-link';
+            infoLink.textContent = "More info";
+            infoLink.style.marginLeft = "28px";
+            infoLink.onclick = (e) => {
+                e.preventDefault();
+                this.getLayerInfo(layerName);
+            };
+
+            // Add description and info link
+            const descWrapper = document.createElement('div');
+            descWrapper.appendChild(desc);
+            descWrapper.appendChild(infoLink);
+
+
             // Second line: slider
             const line2 = document.createElement('div');
             line2.style.width = '100%';
@@ -385,8 +427,9 @@ class LayerWidget extends Widget {
 
             line2.appendChild(slider);
 
-            wrapper.appendChild(line1);
-            wrapper.appendChild(line2);
+            wrapper.appendChild(line1);           // First line: checkbox + label
+            wrapper.appendChild(descWrapper);     // Second line: description
+            wrapper.appendChild(line2);           // Third line: slider
 
             this.contentDiv.appendChild(wrapper);
         }
@@ -400,8 +443,53 @@ class LayerWidget extends Widget {
         this.map.removeLayer(layer);
         this.parent.activeDate = null;
     }
+
+    getLayerInfo(layerName) {
+        console.log(`Fetching info for layer: ${layerName}`);
+        fetch(`/get_product_info/${layerName}`)
+        .then(response => response.json())
+        .then(data => {
+            // Build modal content with the requested fields
+            const metadataLink = data?.metadata ? data.metadata : 
+                                `http://localhost:5000/get_metadata/${layerName}`;
+            const modalContent = `
+                <div>
+                    <strong>Code:</strong> ${data.code || ''}<br>
+                    <strong>Name:</strong> ${data.name || ''}<br>
+                    <br>
+                    ${data.info || ''}
+                    <br>
+                    <strong>Frequency:</strong> ${data.frequency || ''}<br>
+                    <strong>Start Day:</strong> ${data.startDay || ''}<br>
+                    <strong>End Day:</strong> ${data.endDay || ''}<br>
+                    <br>
+                    <strong> ${data.organisation?.name || ''} </strong><br>
+                    <strong>Organisation Contact:</strong> ${data.organisation?.contact || ''}<br>
+                    <strong>Organisation Email:</strong> ${data.organisation?.email || ''}<br>
+                    <br>
+                    <strong>License:</strong> ${data.license || ''}<br>
+                    ${data.citationStatement || ''}
+                    <br>
+                    <br>
+                    <br>
+                    <a href="${metadataLink}" target="_blank">Metadata</a>
+                </div>
+            `;
+            const modal = new ModalWidget({
+                title: `Layer Info: ${layerName}`,
+                content: modalContent
+            });
+            modal.open();
+        })
+        .catch(error => {
+            console.error('Error fetching layer info:', error);
+        });
+    }
 }
 
+/**
+ * Timeline widget for controlling time-based data visualization.
+ */
 class TimelineWidget extends Widget {
     constructor(options) {
         options.id = options.id || 'timeline-widget';
@@ -585,6 +673,9 @@ class TimelineWidget extends Widget {
     }
 }
 
+/**
+ * Modal widget for displaying content in a popup overlay.
+ */
 class ModalWidget {
     constructor(options) {
         this.id = options.id || `modal-${Math.random().toString(36).substr(2, 9)}`;
