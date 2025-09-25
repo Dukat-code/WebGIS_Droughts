@@ -7,11 +7,13 @@ import numpy as np
 import xarray as xr
 
 # Get the path to config.ini
-config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.ini')
+config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
 
 # Read the config file
 config = configparser.ConfigParser()
 config.read(config_path)
+print("Config file read from:", config_path)
+print("Sections found:", config.sections())
 
 # DBConnection parameters PostgreSQL
 DB_HOST = config.get('database', 'host')
@@ -21,8 +23,8 @@ DB_USER = config.get('database', 'user')
 DB_PASSWORD = config.get('database', 'password')    
 
 # Data parameters
-TABLE_NAME = 'era5_ecowas'
-CSV_FILE = 'grid_era5_ecowas.csv'
+TABLE_NAME = 'era5_ecowas_2'
+CSV_FILE = 'grid_era5_ecowas_2.csv'
 NC_FILE = 'era5_monthly_tp_ecowas.nc'
 VALUE_DIM = 'tp'
 TIME_DIM = 'valid_time'
