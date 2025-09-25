@@ -652,7 +652,7 @@ class TimelineWidget extends Widget {
         // Resize the map to leave space for the timeline widget
         const mapDiv = document.getElementById('map');
         if (mapDiv) {
-            mapDiv.style.height = 'calc(100% - 20vh)';
+            mapDiv.style.height = 'calc(100% - 15vh)';
             if (this.map && this.map.invalidateSize) {
                 this.map.invalidateSize();
             }
