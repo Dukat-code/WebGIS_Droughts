@@ -82,4 +82,4 @@ Init_scripts/*.csv
 Init_scripts/*.nc
 
 # Ignore PostgreSQL dumps
-*.sql
+#*.sql

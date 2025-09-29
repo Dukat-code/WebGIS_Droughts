@@ -1,11 +1,17 @@
 var chart = null;
+let year_init, year_end, colorMin, colorMax;
 const monthNames = [
                     "January", "February", "March", "April", "May", "June",
                     "July", "August", "September", "October", "November", "December"
                     ];
-function createElements(lat,lon,year_init,year_end,table){
-    console.log(lat);
-    console.log(lon);
+
+function createElements(lat,lon,table,year_init,year_end, color_min, color_max){
+    console.log(lat,lon,table,year_init,year_end, color_min, color_max);
+
+    colorMin = color_min&&(color_min!=='None')?color_min:'rgba(56, 140, 193, 0.8)';
+    colorMax = color_max&&(color_max!=='None')?color_max:'rgba(62, 167, 234, 0.48)';
+    console.log(colorMin,colorMax);
+    let container = document.getElementById("container");
     let yearFromSlider = document.getElementById("yearFromSlider");
     yearFromSlider.value = year_init;
     let yearFrom = document.getElementById("yearFrom");
@@ -97,7 +103,9 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,table){
 function draw_chart(data,avg,stdPlus,stdMinus,labels)
 {
     const ctx = document.getElementById('myChart');
-    const backgroundColors = data.map((v,i)=>v>avg[i]?'rgba(56, 140, 193, 0.8)':'rgba(62, 167, 234, 0.48)');
+    console.log(colorMax,colorMin);
+    const backgroundColors = data.map((v,i)=>v>=avg[i]?colorMax:colorMin);
+    console.log(backgroundColors);
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
         data: {
