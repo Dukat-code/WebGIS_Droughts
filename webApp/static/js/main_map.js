@@ -41,7 +41,7 @@ class Map {
                 "2011-01-01",
                 "2011-06-01",
                 "2020-01-01",
-                "2011-06-01",
+                "2020-06-01",
                 "2025-01-01",
                 "2025-06-01"
             ];
@@ -54,10 +54,12 @@ class Map {
         });
         
         // Add layers
-        for (const layerName in cfg.layers) {
+         for (const layerName in cfg.layers) {
             this.addLayer(
                 layerName,
                 cfg.layers[layerName].url,
+                cfg.layers[layerName].get_feature_info_url ? cfg.layers[layerName].get_feature_info_url : cfg.get_feature_info_url,
+                cfg.layers[layerName].legend || '',
                 cfg.layers[layerName].info || '',
                 cfg.layers[layerName].active === 'true',
                 cfg.layers[layerName].opacity,
@@ -68,27 +70,7 @@ class Map {
         }
 
         // Layer control widget
-        const layersByTopic = {
-            precipitation: {
-                "era5_ecowas": { 
-                    active: true, 
-                    opacity: 1, 
-                    layerObj: this.layers["era5_ecowas"]
-                },
-                "era5_ecowas_2025_notime": { 
-                    active: false, 
-                    opacity: 0.5, 
-                    layerObj: this.layers["era5_ecowas_2025_notime"] 
-                }
-            },
-            temperature: {
-                "era5_ecowas": { 
-                    active: true, 
-                    opacity: 1, 
-                    layerObj: this.layers["era5_ecowas"]
-                },
-            }
-        };
+        const layersByTopic = this.createLayersByTopic(cfg);
 
         new LayerWidget(
                     { 
@@ -106,6 +88,21 @@ class Map {
         this.setFeatureInfoControl();
 
         
+    }
+
+    createLayersByTopic(cfg) {
+        const layersByTopic = {};
+        for (const layerName in cfg.layers) {
+            const layerCfg = cfg.layers[layerName];
+            const topic = layerCfg.topic || 'other';
+            if (!layersByTopic[topic]) layersByTopic[topic] = {};
+            layersByTopic[topic][layerName] = {
+                active: layerCfg.active === 'true',
+                opacity: layerCfg.opacity,
+                layerObj: this.layers[layerName]
+            };
+        }
+        return layersByTopic;
     }
 
     setFeatureInfoControl() {
@@ -161,13 +158,15 @@ class Map {
         });
     }
 
-    addLayer(name, url, info, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
+    addLayer(name, url, getFeatureUrl, legend, info, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
         const layer = L.tileLayer(url, {
             opacity: opacity,
             tms: tms
         });
         layer.info = info || '';
+        layer.legend = legend || '';
         layer.timeseries = time;
+        layer.getFeatureUrl = `${getFeatureUrl}/${name}`;
         if(time){
             layer.dateFormat = dateFormat
         }
@@ -185,24 +184,34 @@ class Map {
         const lon = latlng.lng.toFixed(4);
         const date = this.activeDate;
         const activeLayer = Object.keys(this.layers).find(layerName => this.map.hasLayer(this.layers[layerName]) && this.layers[layerName].timeseries);
-        console.log(`Fetching info for ${activeLayer} at (${lat}, ${lon}) on ${date}`);
+        const url = this.layers[activeLayer]?.getFeatureUrl;
         if(!activeLayer) {
             alert('No active time series layer selected.');
             return;
         }
-        fetch(`/get_feature_info/${activeLayer}/${lat}/${lon}/${date}`)
+        fetch(`${url}/${lat}/${lon}/${date}`)
             .then(response => response.json())
             .then(data => {
+                console.log(data);
                 // Display the feature info (customize as needed)
                 let info = `Info for ${activeLayer} at (${lat}, ${lon}) on ${date}:\n`;
                 // Extract the value from the response (adjust as needed)
-                const value = data.value || 'No value found';
+                let value = '';
+                if(data.value){
+                    value = data.value;
+                } else {
+                    value+="<br>";
+                    for(let i in data){ 
+                        value += `${i}: ${data[i]} <br>`;
+                    }
+
+                }
 
                 // Create popup content with value and link
                 const popupContent = `
                     <div>
                         ${info}<br>
-                        <strong>Value:</strong> ${value}<br>
+                        <strong>Value(s):</strong> ${value}<br>
                         <button id="modal-open-btn" title="Open in Modal">Open chart</button>
                     </div>
                 `;
@@ -219,7 +228,7 @@ class Map {
                     const btn = document.getElementById('modal-open-btn');
                     if (btn) {
                         btn.onclick = () => {
-                            this.openModal(title, `http://localhost:5000/clim_chart/${activeLayer}/${lat}/${lon}/1991/2024`);
+                            this.openModal(title, `http://localhost:5000/clim_chart/${activeLayer}/${lat}/${lon}`);
                         };
                     }
                 }, 100);
@@ -333,7 +342,7 @@ class LayerWidget extends Widget {
             const wrapper = document.createElement('div');
             wrapper.className = 'layer-control-row';
 
-            // First line: checkbox + label
+            // First line: checkbox + label + legend toggle
             const line1 = document.createElement('div');
             line1.style.display = 'flex';
             line1.style.alignItems = 'center';
@@ -343,43 +352,33 @@ class LayerWidget extends Widget {
             checkbox.type = 'checkbox';
             checkbox.checked = layer.active;
             checkbox.setAttribute('data-layer', layerName);
-            checkbox.onchange = (e) => {
-                if (e.target.checked) {
-                    // Uncheck all other checkboxes and remove their layers
-                    this.contentDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                        if (cb !== e.target) {
-                            cb.checked = false;
-                            const otherLayerName = cb.getAttribute('data-layer');
-                            const otherLayer = layers[otherLayerName];
-                            if (otherLayer && otherLayer.layerObj) {
-                                this.removeLayer(otherLayer.layerObj);
-                            }
-                        }
-                    });
-                    // Add the selected layer
-                    if (layer.layerObj) {
-                        console.log(layer.layerObj);
-                        layer.layerObj.addTo(this.map);
-                        if(layer.layerObj.timeseries){
-                            this.timeline.setActiveLayer(layer.layerObj);
-                        } else {   
-                            this.timeline.setActiveLayer(null);
-                        }
-                    }
-                } else {
-                    // Remove the layer if unchecked
-                    if (layer.layerObj) {
-                        this.removeLayer(layer.layerObj);
-                        if(layer.layerObj.timeseries){
-                            this.timeline.setActiveLayer(null);
-                        }
-                    }
-                }
-            };
 
             const label = document.createElement('label');
             label.textContent = layerName;
             label.style.marginRight = '8px';
+
+            // Legend toggle button
+            const legendToggle = document.createElement('button');
+            legendToggle.textContent = 'Legend';
+            legendToggle.className = 'legend-toggle-btn';
+
+            // Legend container
+            const legendDiv = document.createElement('div');
+            legendDiv.className = 'layer-legend';
+            legendDiv.style.display = layer.active ? 'block' : 'none'; // Show if active
+
+            // Example: legend as image
+            if (layer.layerObj.legend) {
+                legendDiv.innerHTML = `<img src="${layer.layerObj.legend}" alt="Legend for ${layerName}" style="max-width:100%;">`;
+            } else {
+                legendDiv.innerHTML = '<em>No legend available</em>';
+            }
+
+            legendToggle.onclick = () => {
+                legendDiv.style.display = legendDiv.style.display === 'none' ? 'block' : 'none';
+            };
+
+            checkbox.onchange = (e) => this.onLayerChange(e, layer, legendDiv);
 
             line1.appendChild(checkbox);
             line1.appendChild(label);
@@ -405,11 +404,21 @@ class LayerWidget extends Widget {
             descWrapper.appendChild(desc);
             descWrapper.appendChild(infoLink);
 
+            // Legend toggle wrapper
+            const legendToggleWrapper = document.createElement('div');
+            legendToggleWrapper.appendChild(legendToggle);
+            legendToggleWrapper.style.marginLeft = "28px";
 
             // Second line: slider
             const line2 = document.createElement('div');
-            line2.style.width = '100%';
+            line2.style.display = 'flex';
+            line2.style.alignItems = 'center';
+            line2.style.gap = '8px';
             line2.style.marginTop = '4px';
+            line2.style.marginLeft = '28px';
+
+            const opacityLabel = document.createElement('span');
+            opacityLabel.textContent = 'Opacity:';
 
             const slider = document.createElement('input');
             slider.type = 'range';
@@ -419,20 +428,63 @@ class LayerWidget extends Widget {
             slider.value = layer.opacity;
             slider.setAttribute('data-layer-opacity', layerName);
             slider.className = 'layer-slider';
+            slider.style.width = '120px'; // Make slider narrower
             slider.oninput = (e) => {
                 if (layer.layerObj) {
                     layer.layerObj.setOpacity(parseFloat(e.target.value));
                 }
             };
 
+            line2.appendChild(opacityLabel);
             line2.appendChild(slider);
 
-            wrapper.appendChild(line1);           // First line: checkbox + label
-            wrapper.appendChild(descWrapper);     // Second line: description
-            wrapper.appendChild(line2);           // Third line: slider
+            wrapper.appendChild(line1);              // First line: checkbox + label
+            wrapper.appendChild(line2);              // Fifth line: slider
+            wrapper.appendChild(descWrapper);        // Second line: description + info link
+            wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
+            wrapper.appendChild(legendDiv);          // Fourth line: legend
 
             this.contentDiv.appendChild(wrapper);
         }
+    }
+
+    onLayerChange(e, layer, legendDiv) {
+        if (e.target.checked) {
+            // Uncheck all layers in all topics in the data structure
+            for (const topic in this.layersByTopic) {
+                for (const otherLayerName in this.layersByTopic[topic]) {
+                    const otherLayer = this.layersByTopic[topic][otherLayerName];
+                    if (otherLayer !== layer) {
+                        otherLayer.active = false;
+                        if (otherLayer.layerObj && this.map.hasLayer(otherLayer.layerObj)) {
+                            this.removeLayer(otherLayer.layerObj);
+                        }
+                    }
+                }
+            }
+            // Set the selected layer as active
+            layer.active = true;
+            if (layer.layerObj) {
+                layer.layerObj.addTo(this.map);
+                if (layer.layerObj.timeseries) {
+                    this.timeline.setActiveLayer(layer.layerObj);
+                } else {
+                    this.timeline.setActiveLayer(null);
+                }
+            }
+            legendDiv.style.display = 'block';
+        } else {
+            layer.active = false;
+            if (layer.layerObj) {
+                this.removeLayer(layer.layerObj);
+                if (layer.layerObj.timeseries) {
+                    this.timeline.setActiveLayer(null);
+                }
+            }
+            legendDiv.style.display = 'none';
+        }
+        // Re-render controls to update checkboxes
+        this.renderLayerControls();
     }
 
     removeLayer(layer) {
@@ -635,6 +687,8 @@ class TimelineWidget extends Widget {
             this.hide();
         else{
             this.setDateFormat(layer.dateFormat);
+            const date = this.dates[this.currentIndex];
+            this.parent.activeDate = date;
             if(this.hidden){
                 this.show();
             }

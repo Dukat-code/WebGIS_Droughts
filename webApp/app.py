@@ -3,8 +3,9 @@ from flask_cors import CORS
 import configparser
 import os
 import psycopg2
-from src.get_layer_info import get_feature_data
+from src.get_layer_info import get_feature_data, get_meteostation_month_data
 from src.get_layer_info import get_feature_data_from_lat_lon
+from src.get_layer_info import get_data_time_bounds
 
 ##############################################################################
 
@@ -50,11 +51,17 @@ def close_db_connection(conn):
 app = Flask(__name__)
 CORS(app)
 
+@app.route('/get_time_bounds/<lat>/<lon>/<table>')
+def get_time_bounds(lat, lon, table):
+    conn = get_db_connection()
+    time_bounds = get_data_time_bounds(lat, lon, table, conn)
+    close_db_connection(conn)
+    return jsonify(time_bounds)
+
 @app.route('/get_data_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<table>')
 def get_data_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, table):
     conn = get_db_connection()
     feat_info = get_feature_data_from_lat_lon(table, lat, lon, int(yearFrom), int(monthFrom), int(yearTo), int(monthTo), conn)
-    print(feat_info)
     close_db_connection(conn)
     return jsonify(feat_info)
 
@@ -67,6 +74,13 @@ def get_feature_info(layer, lat, lon, date):
     close_db_connection(conn)
     return jsonify(feat_info)
 
+@app.route('/get_meteostation_info/<layer>/<lat>/<lon>/<date>')
+def get_meteostation_info(layer, lat, lon, date):
+    conn = get_db_connection()
+    meteostation_info = get_meteostation_month_data(conn, lat, lon, date)
+    close_db_connection(conn)
+    return jsonify(meteostation_info)
+
 @app.route('/get_product_info/<layer>')
 def get_product_info(layer):
     products_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'products.json')
@@ -77,14 +91,18 @@ def get_product_info(layer):
         return jsonify({"error": str(e)}), 500
 
     # Optionally, filter by layer if needed
-    print(products)
     product_info = products.get(layer, {})
     return jsonify(product_info)
 
-@app.route('/clim_chart/<layer>/<lat>/<lon>/<year_init>/<year_end>')
-def clim_chart(layer, lat, lon, year_init, year_end):
+@app.route('/clim_chart/<layer>/<lat>/<lon>')
+def clim_chart(layer, lat, lon):
     table = get_key_config(layer).get('table')
-    return render_template('clim_chart.html',lat=lat,lon=lon,yearInit=year_init,yearEnd=year_end,table=table)
+    color_min = get_key_config(layer).get('chart_color_min')
+    color_max = get_key_config(layer).get('chart_color_max')
+    conn = get_db_connection()
+    time_bounds = get_data_time_bounds(lat, lon, table, conn)
+    close_db_connection(conn)
+    return render_template('clim_chart.html',lat=lat,lon=lon,table=table,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max)
 
 @app.route('/get_metadata/<layer>')
 def get_metadata(layer):
@@ -104,7 +122,6 @@ def main_map():
     # Get all layers config
     layers = {}
     layer_names = map_config["layers"].split(',')
-    print(layer_names)
     for layer_name in layer_names:
         layer = get_key_config(layer_name)
         layers[layer_name] = layer

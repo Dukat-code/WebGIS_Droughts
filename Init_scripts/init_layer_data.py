@@ -23,28 +23,32 @@ DB_USER = config.get('database', 'user')
 DB_PASSWORD = config.get('database', 'password')    
 
 # Data parameters
-TABLE_NAME = 'era5_ecowas_2'
-CSV_FILE = 'grid_era5_ecowas_2.csv'
-NC_FILE = 'era5_monthly_tp_ecowas.nc'
-VALUE_DIM = 'tp'
+TABLE_NAME = 'era5_temp_ecowas'  # name of the table to create
+CSV_FILE = ''
+NC_FILE = 'era5_monthly_2mtemp_ecowas_1991_2025.nc'
+VALUE_DIM = 't2m'
 TIME_DIM = 'valid_time'
 LON_DIM = 'longitude'
 LAT_DIM = 'latitude'
+GRID = 'grid_era5_ecowas'  # existing grid with the geometry of the cells, if empty it will be created
 
 ####################################################################################
 # Creates the tables to contain the information
 ####################################################################################
 def create_tables(conn):
-    query_grid = f"""
-                 CREATE TABLE grid_{TABLE_NAME} (
-                    id INTEGER PRIMARY KEY,
-                    cell_id BIGINT UNIQUE,
-                    geom GEOMETRY(POLYGON, 4326)
-                 );
-                 """
-    query_g_idx = f"""
-                  CREATE INDEX idx_grid_{TABLE_NAME}_cell_id ON grid_{TABLE_NAME}(cell_id);
-                  """
+    grid_name = 'grid_'+TABLE_NAME if GRID == '' else GRID
+    if GRID == '':
+        print("No grid specified, creating new grid table.")
+        query_grid = f"""
+                    CREATE TABLE {grid_name} (
+                        id INTEGER PRIMARY KEY,
+                        cell_id BIGINT UNIQUE,
+                        geom GEOMETRY(POLYGON, 4326)
+                    );
+                    """
+        query_g_idx = f"""
+                    CREATE INDEX idx_{grid_name}_cell_id ON {grid_name}(cell_id);
+                    """
     query_table = f"""
                   CREATE TABLE {TABLE_NAME} (
                     id SERIAL PRIMARY KEY,
@@ -66,15 +70,16 @@ def create_tables(conn):
                  FROM 
                      {TABLE_NAME} AS era5
                  JOIN 
-                     grid_{TABLE_NAME} AS grid
+                     {grid_name} AS grid
                  ON 
                      era5.cell_id = grid.cell_id;
                  """  
     cursor=conn.cursor()
-    cursor.execute(query_grid)
-    conn.commit()
-    cursor.execute(query_g_idx)
-    conn.commit()
+    if GRID == '':
+        cursor.execute(query_grid)
+        conn.commit()
+        cursor.execute(query_g_idx)
+        conn.commit()
     cursor.execute(query_table)
     conn.commit()
     cursor.execute(query_t_idx)
@@ -193,8 +198,10 @@ def main():
         )
 
     create_tables(conn)
-    create_grid_csv(NC_FILE,CSV_FILE)
-    grid_from_csv(conn,CSV_FILE,TABLE_NAME)
+    if GRID == '':
+        create_grid_csv(NC_FILE,CSV_FILE)
+        grid_from_csv(conn,CSV_FILE,TABLE_NAME)
+
     insert_from_nc(conn,TABLE_NAME,NC_FILE,VALUE_DIM,TIME_DIM,LON_DIM,LAT_DIM)
     
     conn.commit()

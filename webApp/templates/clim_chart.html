@@ -10,10 +10,10 @@
                     <div class="control">
                         <label class="title">From</label>
                         <input type="text" id="yearFrom" value="50" class="year" readonly>
-                        <input type="range" min={{yearInit}} max={{yearEnd}} value={{yearInit}} class="slider" id="yearFromSlider">
+                        <input type="range" min={{year_init}} max={{year_end}} value={{year_init}} class="slider" id="yearFromSlider">
                         <div class="scale">
-                            <span>{{yearInit}}</span>
-                            <span>{{yearEnd}}</span>
+                            <span>{{year_init}}</span>
+                            <span>{{year_end}}</span>
                         </div>
                         <input type="text" id="monthFrom" value="" class="month" readonly>
                         <input type="range" min="0" max="11" value="0" class="slider" id="monthFromSlider">
@@ -25,10 +25,10 @@
                     <div class="control">
                         <label class="title">To</label>
                         <input type="text" id="yearTo" value="50" class="year" readonly>
-                        <input type="range" min={{yearInit}} max={{yearEnd}} value={{yearInit}} class="slider" id="yearToSlider">
+                        <input type="range" min={{year_init}} max={{year_end}} value={{year_init}} class="slider" id="yearToSlider">
                         <div class="scale">
-                            <span>{{yearInit}}</span>
-                            <span>{{yearEnd}}</span>
+                            <span>{{year_init}}</span>
+                            <span>{{year_end}}</span>
                         </div>
                         <input type="text" id="monthTo" value="" class="month" readonly>
                         <input type="range" min="0" max="11" value="0" class="slider" id="monthToSlider">
@@ -45,7 +45,7 @@
             </div>
         </div>
         <script>
-            createElements("{{lat}}","{{lon}}","{{yearInit}}","{{yearEnd}}","{{table}}");
+            createElements("{{lat}}","{{lon}}","{{table}}","{{year_init}}","{{year_end}}","{{color_min}}","{{color_max}}");
         </script>
     </body>
 </html>

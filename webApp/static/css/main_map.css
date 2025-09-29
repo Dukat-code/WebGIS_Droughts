@@ -71,12 +71,13 @@ body {
     top: 24px;
     left: 24px;
     width: 300px;
+    max-height: 80vh;
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(44, 62, 80, 0.12);
     z-index: 10;
     transition: box-shadow 0.2s;
-    overflow: hidden;
+    overflow: scroll;
 }
 
 .widget-header {
@@ -175,7 +176,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 0;
+    margin-bottom: 5px;
     flex-wrap: wrap;
 }
 
@@ -187,6 +188,11 @@ body {
 .layer-control-row .layer-slider {
     width: 100%;
     margin-top: 4px;
+}
+
+.layer-slider {
+    width: 120px;
+    margin-left: 8px;
 }
 
 .layer-description {
@@ -205,6 +211,27 @@ body {
 }
 .layer-info-link:hover {
     color: #1a2733;
+}
+
+.layer-legend {
+    margin: 8px 0 0 28px;
+    padding: 8px;
+    background: #f5f6fa;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(44,62,80,0.05);
+    min-width: 140px;
+}
+.legend-toggle-btn {
+    background: #2b3e50;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.95em;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.legend-toggle-btn:hover {
+    background: #1a2733;
 }
 
 /* Timeline widget container */
