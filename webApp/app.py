@@ -8,6 +8,8 @@ from src.get_layer_info import get_feature_data_from_lat_lon
 from src.get_layer_info import get_data_time_bounds
 
 ##############################################################################
+# CONFIGURATION
+##############################################################################
 
 # Load config.ini
 config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
@@ -22,6 +24,7 @@ def get_key_config(feat):
 ############################################################################### 
 # Database connection functions 
 ###############################################################################
+DB_CON_STR = ""
 # DBConnection parameters PostgreSQL
 DB_HOST = config.get('database', 'host')
 DB_PORT = config.get('database', 'port')
@@ -30,13 +33,16 @@ DB_USER = config.get('database', 'user')
 DB_PASSWORD = config.get('database', 'password')
 
 def get_db_connection():
-    conn = psycopg2.connect(
-                database=DB_NAME,
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                port=DB_PORT
-            )
+    if DB_CON_STR:
+        conn = psycopg2.connect(DB_CON_STR)
+    else:
+        conn = psycopg2.connect(
+                    database=DB_NAME,
+                    host=DB_HOST,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    port=DB_PORT
+                )
     return conn
 
 def close_db_connection(conn):
@@ -130,4 +136,12 @@ def main_map():
     return render_template('main_map.html', map_config=map_config)
 
 if __name__ == "__main__":
-        app.run(host="0.0.0.0",debug=True)
+    import argparse
+    parser = argparse.ArgumentParser(description="Import meteo CSV to database")
+    parser.add_argument('--db_os_users', action='store_true', help="Use OS user configuration for DB connection")
+    args = parser.parse_args()
+    if args.db_os_users:
+        DB_CON_STR = "dbname=postgres"
+
+    app.run(host="0.0.0.0",debug=True)
+        

@@ -1,9 +1,5 @@
-import configparser
-import os
-import psycopg2
 from datetime import datetime
 import numpy as np
-import xarray as xr
 
 # RE-DEFINE THESE FUNCTIONS USING THE VIEWS INSTEAD OF THE RAW TABLES
 def get_feature_data(table, lat, lon, date, conn):
