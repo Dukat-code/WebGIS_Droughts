@@ -21,6 +21,8 @@ DB_PORT = config.get('database', 'port')
 DB_NAME = config.get('database', 'name')
 DB_USER = config.get('database', 'user')
 DB_PASSWORD = config.get('database', 'password')    
+# DB config for OS user option
+DB_CONN_STR = "dbname=postgres"
 
 # Data parameters
 TABLE_NAME = 'era5_temp_ecowas'  # name of the table to create
@@ -188,14 +190,17 @@ def insert_from_nc(conn,table,filename,value_dim,time_dim,lon_dim,lat_dim):
 ####################################################################################
 # MAIN
 ####################################################################################
-def main():
-    conn = psycopg2.connect(
-            database=DB_NAME,
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            port=DB_PORT
-        )
+def main(os_users=False):
+    if os_users:
+        conn = psycopg2.connect(DB_CONN_STR)
+    else:
+        conn = psycopg2.connect(
+                database=DB_NAME,
+                host=DB_HOST,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                port=DB_PORT
+            )
 
     create_tables(conn)
     if GRID == '':
@@ -208,4 +213,8 @@ def main():
     conn.close()
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Import meteo CSV to database")
+    parser.add_argument('--db_os_users', action='store_true', help="Use OS user configuration for DB connection")
+    args = parser.parse_args()
+    main(os_users=args.db_os_users)

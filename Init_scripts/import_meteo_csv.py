@@ -28,6 +28,7 @@ config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.in
 config.read(config_path)
 db_section = config['database']
 
+# DB config
 DB_CONFIG = {
     'host': db_section.get('host', 'localhost'),
     'port': db_section.getint('port', 5432),
@@ -35,6 +36,8 @@ DB_CONFIG = {
     'user': db_section.get('user', 'postgres'),
     'password': db_section.get('password', '')
 }
+# DB config for OS user option
+DB_CONN_STR = "dbname=postgres"
 
 # Read table creation SQL from meteo_stations.sql
 def create_table_if_not_exists(cur):
@@ -43,8 +46,12 @@ def create_table_if_not_exists(cur):
         sql = f.read()
     cur.execute(sql)
 
-def main():
-    conn = psycopg2.connect(**DB_CONFIG)
+def main(os_users=False):
+    if os_users:
+        conn = psycopg2.connect(DB_CONN_STR)
+    else:
+        conn = psycopg2.connect(**DB_CONFIG)
+    
     cur = conn.cursor()
 
     # Create table if not exists
@@ -92,4 +99,8 @@ def main():
     print("Import completed.")
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Import meteo CSV to database")
+    parser.add_argument('--db_os_users', action='store_true', help="Use OS user configuration for DB connection")
+    args = parser.parse_args()
+    main(os_users=args.db_os_users)
