@@ -1,3 +1,10 @@
+CREATE SEQUENCE IF NOT EXISTS meteo_data_id_seq
+START WITH 1
+INCREMENT BY 1
+NO MINVALUE
+NO MAXVALUE
+CACHE 1;
+
 CREATE TABLE IF NOT EXISTS meteostation_month_data 
 (
     id integer NOT NULL DEFAULT nextval('meteo_data_id_seq'::regclass),
