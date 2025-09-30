@@ -10,9 +10,9 @@ Folder structure:
 # Init_scripts
 # ###################################################
 
-# ----------------------------------------------
+# ###################################################
 # meteostat_to_csv.py
-# ----------------------------------------------
+# ###################################################
 This script fetches monthly weather data from the Meteostat API for weather stations within a specified bounding box (using top-left and bottom-right coordinates), date range, and number of stations. It saves the results to a CSV file with columns for latitude, longitude, elevation, station name, year, month, and climate variables (tavg, tmax, tmin, prcp).
 
 Parameters:
@@ -33,9 +33,9 @@ python meteostat_to_csv.py
   --n_stations 50 
   --csv_path ecowas_stations.csv
 
-# ----------------------------------------------
+# ###################################################
 # import_meteo_csv.py
-# ----------------------------------------------
+# ###################################################
 This script imports weather station data from a CSV file into the `meteostation_month_data` table in the database. If the table does not exist, it is automatically created using the SQL definition in `meteo_stations.sql`.
 
 **Command-line parameters:**
@@ -50,9 +50,9 @@ python import_meteo_csv.py
 **Functionality:**
 The script reads the CSV file (default: `ecowas_stations.csv`), maps its columns to the database schema, and inserts each record. It supports climate variables such as tavg, tmax, tmin, and prcp, and automatically creates the geometry column from latitude and longitude.
 
-# ----------------------------------------------
+# ###################################################
 # init_layer_data.py
-# ----------------------------------------------
+# ###################################################
 This script initializes and populates database tables and views for climate and drought layers using existing raw tables and NetCDF files. It can create grid tables, import data from NetCDF, and set up SQL views for efficient spatial and temporal queries.
 
 **Command-line parameters:**
@@ -74,9 +74,9 @@ python init_layer_data.py
 **Note:**  
 This is an initial version. It will be adjusted to work with the correct grids of JRC
 
-# ----------------------------------------------
+# ###################################################
 # seeding.py
-# ----------------------------------------------
+# ###################################################
 The script seeds (pre-generates) map tiles for a specified layer in GeoServer using a list of dates.  
 It connects to the database only to retrieve available dates (if enabled), then sends seed requests to GeoServer for each date, zoom level, and format.
 
@@ -96,9 +96,9 @@ python seeding.py
 **Note:**  
 - This script is for GeoServer tile seeding, not for database data seeding.
 
-# ----------------------------------------------
+# ###################################################
 # layer_publish.py
-# ----------------------------------------------
+# ###################################################
 **Note:**  
 This script is still not working fine, has problems enabling the features of tile caching, so for the moment the publication must be done manually from the Geoserver interface
 
@@ -123,9 +123,9 @@ python layer_publish.py
 # WebApp
 # ###################################################
 
-# ----------------------------------------------
+# ###################################################
 # app.py
-# ----------------------------------------------
+# ###################################################
 This script runs the main Flask web application for the WebGIS Droughts project. It provides the backend for interactive drought and climate mapping, serving both the web frontend and a set of REST API endpoints.
 
 **Usage:**
