@@ -15,7 +15,7 @@ DB_CONN_STR = "dbname=postgres"
 GEOSERVER_URL = "http://localhost:8080/geoserver"
 USERNAME = "admin"
 PASSWORD = "geoserver"
-LAYER_NAME = "droughts:era5_temp_ecowas_data_view"
+LAYER_NAME = "droughts:era5_ecowas_temp"
 GRIDSET_ID = "WebMercatorQuad"
 FORMAT = "image/png"
 ZOOM_START = 3

@@ -2,11 +2,23 @@
     <head>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <link rel="stylesheet" href="{{ url_for('static', filename='/css/clim_chart.css') }}">
-        <script src="{{ url_for('static', filename='/js/clim_chart.js')}}"></script>
+        <script src="{{ url_for('static', filename='/js/clim_station_chart.js')}}"></script>
     </head>
     <body>
         <div class="dashboard">
-            <div class="ctrlPanel">
+            <div id="ctrlPanel" class="ctrlPanel">
+
+                    <div id="variable" class="control">
+                        <label class="title">Variable</label>
+                        <div class="selector">
+                            <select id="variableSelect" class="selector">
+                                <option value="tmin">min. temperature</option>
+                                <option value="tmax">max. temperature</option>
+                                <option value="tavg">avg. temperature</option>
+                                <option value="prcp">precipitation</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="control">
                         <label class="title">From</label>
                         <input type="text" id="yearFrom" value="50" class="year" readonly>

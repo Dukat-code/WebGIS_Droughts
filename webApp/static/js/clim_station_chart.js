@@ -5,66 +5,67 @@ const monthNames = [
                     "July", "August", "September", "October", "November", "December"
                     ];
 
-function createElements(lat,lon,layer,year_init,year_end, color_min, color_max){
-    console.log(lat,lon,layer,year_init,year_end, color_min, color_max);
+function createElements(lat, lon, layer, year_init, year_end, color_min, color_max) {
 
-    colorMin = color_min&&(color_min!=='None')?color_min:'rgba(56, 140, 193, 0.8)';
-    colorMax = color_max&&(color_max!=='None')?color_max:'rgba(62, 167, 234, 0.48)';
-    console.log(colorMin,colorMax);
-    let container = document.getElementById("container");
+    colorMin = color_min && (color_min !== 'None') ? color_min : 'rgba(56, 140, 193, 0.8)';
+    colorMax = color_max && (color_max !== 'None') ? color_max : 'rgba(62, 167, 234, 0.48)';
+
     let yearFromSlider = document.getElementById("yearFromSlider");
     yearFromSlider.value = year_init;
     let yearFrom = document.getElementById("yearFrom");
     yearFrom.value = yearFromSlider.value;
-    yearFromSlider.oninput = (v)=>{yearFrom.value=yearFromSlider.value;};
+    yearFromSlider.oninput = (v) => { yearFrom.value = yearFromSlider.value; };
+
     let monthFromSlider = document.getElementById("monthFromSlider");
-    monthFromSlider.value=0;
+    monthFromSlider.value = 0;
     let monthFrom = document.getElementById("monthFrom");
     monthFrom.value = monthNames[monthFromSlider.value];
-    monthFromSlider.oninput = (v)=>{monthFrom.value=monthNames[monthFromSlider.value];};
+    monthFromSlider.oninput = (v) => { monthFrom.value = monthNames[monthFromSlider.value]; };
 
     let yearToSlider = document.getElementById("yearToSlider");
-    yearToSlider.value=year_end;
+    yearToSlider.value = year_end;
     let yearTo = document.getElementById("yearTo");
     yearTo.value = yearToSlider.value;
-    yearToSlider.oninput = (v)=>{yearTo.value=yearToSlider.value;};
+    yearToSlider.oninput = (v) => { yearTo.value = yearToSlider.value; };
+
     let monthToSlider = document.getElementById("monthToSlider");
-    monthToSlider.value=11;
+    monthToSlider.value = 11;
     let monthTo = document.getElementById("monthTo");
     monthTo.value = monthNames[monthToSlider.value];
-    monthToSlider.oninput = (v)=>{monthTo.value=monthNames[monthToSlider.value];};
+    monthToSlider.oninput = (v) => { monthTo.value = monthNames[monthToSlider.value]; };
 
-    document.getElementById("seeButton").onclick= () => getData(
-        lat,
-        lon,
-        +yearFrom.value,
-        +monthFromSlider.value+1,
-        +yearTo.value,
-        +monthToSlider.value+1,
-        layer
-    );
+    document.getElementById("seeButton").onclick = () => {
+        const variable = document.getElementById("variableSelect").value;
+        getData(
+            lat,
+            lon,
+            +yearFrom.value,
+            +monthFromSlider.value + 1,
+            +yearTo.value,
+            +monthToSlider.value + 1,
+            layer,
+            variable
+        );
+    };
 
+    // Initial load with selected variable
+    const variable = document.getElementById("variableSelect").value;
     getData(
         lat,
         lon,
         +yearFrom.value,
-        +monthFromSlider.value+1,
+        +monthFromSlider.value + 1,
         +yearTo.value,
-        +monthToSlider.value+1,
-        layer
+        +monthToSlider.value + 1,
+        layer,
+        variable
     );
-
 }
 
-function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer){
-    console.log(yearFrom);
-    console.log(monthFrom);
-    console.log(yearTo);
-    console.log(monthTo);
-    fetch(`http://127.0.0.1:5000/get_data_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}`)
+function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer,variable){
+    fetch(`http://127.0.0.1:5000/get_data_station_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}/${variable}`)
     .then(response => response.json())
     .then(r => {
-        console.log(r);
         var data = [],std = [],avg = [], labels = [];
         for(y=0;y<=(yearTo-yearFrom);y++){
             let months = monthNames.map(v=>v+ " '" + (''+(yearFrom+y)).slice(-2))
@@ -87,12 +88,7 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer){
         }
         let stdPlus = std.map((v,i)=>parseFloat(avg[i])+parseFloat(v));
         let stdMinus = std.map((v,i)=>parseFloat(avg[i])-parseFloat(v)).map(v=>v<0?0:v);
-        console.log(stdPlus);
-        console.log(stdMinus);
-        console.log(labels);
         draw_chart(data,avg,stdPlus,stdMinus,labels);
-        console.log(monthTo+1);
-        console.log(monthNames.slice(1,10));
         document.getElementById("downloadCSVBtn").onclick = () => {
             downloadCSV(r);
         };
@@ -103,9 +99,7 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer){
 function draw_chart(data,avg,stdPlus,stdMinus,labels)
 {
     const ctx = document.getElementById('myChart');
-    console.log(colorMax,colorMin);
     const backgroundColors = data.map((v,i)=>v>=avg[i]?colorMax:colorMin);
-    console.log(backgroundColors);
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
         data: {

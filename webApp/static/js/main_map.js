@@ -61,6 +61,7 @@ class Map {
                 cfg.layers[layerName].get_feature_info_url ? cfg.layers[layerName].get_feature_info_url : cfg.get_feature_info_url,
                 cfg.layers[layerName].legend || '',
                 cfg.layers[layerName].info || '',
+                cfg.layers[layerName].topic,
                 cfg.layers[layerName].active === 'true',
                 cfg.layers[layerName].opacity,
                 cfg.layers[layerName].tms === 'true',
@@ -137,7 +138,8 @@ class Map {
             if (btn) {
                 btn.onclick = () => {
                     // Check if there are any layers on the map
-                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && layer.timeseries);
+                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && 
+                                                                        (layer.timeseries || layer.topic==='facilities'));
                     if (!hasAnyLayer) return;
                     this.infoActive = !this.infoActive;
                     btn.style.background = this.infoActive ? "#2b3e50" : "#888";
@@ -158,14 +160,44 @@ class Map {
         });
     }
 
-    addLayer(name, url, getFeatureUrl, legend, info, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
-        const layer = L.tileLayer(url, {
-            opacity: opacity,
-            tms: tms
-        });
+    addLayer(name, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
+        let layer;
+        if(topic==='facilities'){
+            // Special case for facilities: fetch GeoJSON and add as point layer
+            layer = L.geoJSON([], {
+                pointToLayer: (feature, latlng) => {
+                    return L.circleMarker(latlng, {
+                        radius: 6,
+                        fillColor: "#ff7800",
+                        color: "#000",
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    });
+                },
+                onEachFeature: this.onEachFeature.bind(this)
+            });
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('GeoJSON data loaded:', data);
+                    console.log('Layer before adding data:', layer);
+                    layer.addData(data);
+                })
+                .catch(error => {
+                    console.error('Error loading GeoJSON data:', error);
+                });
+        } else {
+            // Standard tile layer
+            layer = L.tileLayer(url, {
+                opacity: opacity,
+                tms: tms
+            });
+        }
         layer.info = info || '';
         layer.legend = legend || '';
         layer.timeseries = time;
+        layer.topic = topic || '';
         layer.getFeatureUrl = `${getFeatureUrl}/${name}`;
         if(time){
             layer.dateFormat = dateFormat
@@ -177,6 +209,64 @@ class Map {
         }
 
         this.layers[name] = layer;
+    }
+
+    onEachFeature(feature, layer) {
+        const mapInstance = this;
+        let popupContent = `<strong>${feature.properties.name || 'No name'}</strong><br>`;
+        for (const prop in feature.properties) {
+            if (prop !== 'name') {
+                popupContent += `${prop}: ${feature.properties[prop]}<br>`;
+            }
+        }
+        layer.bindPopup(popupContent);
+
+        const getActiveDate = () => mapInstance.activeDate;
+        const getInfoActive = () => mapInstance.infoActive;
+
+        layer.on('popupopen', function(e) {
+            if(!getInfoActive()){
+                layer.closePopup();
+                return;
+            } 
+            const lat = feature.properties.latitude;
+            const lon = feature.properties.longitude;
+            const activeDate = getActiveDate();
+            let url = `/get_data_from_station/${lat}/${lon}`;
+            if(activeDate)
+                url += `/${activeDate}`;
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    let extraInfo = "<hr><strong>Station Data:</strong><br>";
+                    for (const key in data) {
+                        extraInfo += `${key}: ${data[key]}<br>`;
+                    }
+                    if(Object.keys(data).length === 0){
+                        extraInfo += `<em>No data available for this station on date ${activeDate}</em><br>`;
+                    }
+                    // Add "Open chart" button
+                    extraInfo += `<button id="modal-open-btn" title="Open in Modal">Open chart</button>`;
+                    layer.setPopupContent(popupContent + extraInfo);
+
+                    // Attach event listener after popup is rendered
+                    setTimeout(() => {
+                        let title = `Data for Station at (${lat}, ${lon})`;
+                        const btn = document.getElementById('modal-open-btn');
+                        if (btn) {
+                            btn.onclick = () => {
+                                mapInstance.openModal(
+                                    title,
+                                    `http://localhost:5000/clim_station_chart/meteostation_month_data/${lat}/${lon}`
+                                );
+                            };
+                        }
+                    }, 100);
+                })
+                .catch(error => {
+                    layer.setPopupContent(popupContent + "<br><em>Error loading station data</em>");
+                });
+        });
     }
 
     getFeatureInfo(latlng) {
@@ -440,9 +530,11 @@ class LayerWidget extends Widget {
 
             wrapper.appendChild(line1);              // First line: checkbox + label
             wrapper.appendChild(line2);              // Fifth line: slider
-            wrapper.appendChild(descWrapper);        // Second line: description + info link
-            wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
-            wrapper.appendChild(legendDiv);          // Fourth line: legend
+            if (layer.layerObj.topic !== 'facilities') {
+                wrapper.appendChild(descWrapper);        // Second line: description + info link
+                wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
+                wrapper.appendChild(legendDiv);          // Fourth line: legend
+            }
 
             this.contentDiv.appendChild(wrapper);
         }
@@ -450,14 +542,16 @@ class LayerWidget extends Widget {
 
     onLayerChange(e, layer, legendDiv) {
         if (e.target.checked) {
-            // Uncheck all layers in all topics in the data structure
-            for (const topic in this.layersByTopic) {
-                for (const otherLayerName in this.layersByTopic[topic]) {
-                    const otherLayer = this.layersByTopic[topic][otherLayerName];
-                    if (otherLayer !== layer) {
-                        otherLayer.active = false;
-                        if (otherLayer.layerObj && this.map.hasLayer(otherLayer.layerObj)) {
-                            this.removeLayer(otherLayer.layerObj);
+            if(layer.layerObj.topic !== 'facilities'){
+                // Uncheck all layers in all topics in the data structure
+                for (const topic in this.layersByTopic) {
+                    for (const otherLayerName in this.layersByTopic[topic]) {
+                        const otherLayer = this.layersByTopic[topic][otherLayerName];
+                        if (otherLayer !== layer && otherLayer.layerObj.topic !== 'facilities') {
+                            otherLayer.active = false;
+                            if (otherLayer.layerObj && this.map.hasLayer(otherLayer.layerObj)) {
+                                this.removeLayer(otherLayer.layerObj);
+                            }
                         }
                     }
                 }
@@ -466,10 +560,12 @@ class LayerWidget extends Widget {
             layer.active = true;
             if (layer.layerObj) {
                 layer.layerObj.addTo(this.map);
-                if (layer.layerObj.timeseries) {
-                    this.timeline.setActiveLayer(layer.layerObj);
-                } else {
-                    this.timeline.setActiveLayer(null);
+                if (layer.layerObj.topic !== 'facilities') {
+                    if (layer.layerObj.timeseries) {
+                        this.timeline.setActiveLayer(layer.layerObj);
+                    } else {
+                        this.timeline.setActiveLayer(null);
+                    }
                 }
             }
             legendDiv.style.display = 'block';

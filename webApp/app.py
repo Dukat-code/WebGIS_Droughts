@@ -1,11 +1,15 @@
 from flask import Flask, json, jsonify, render_template, Response
 from flask_cors import CORS
+from waitress import serve
 import configparser
 import os
 import psycopg2
-from src.get_layer_info import get_feature_data, get_meteostation_month_data
+from src.get_layer_info import get_feature_data, get_meteo_stations_geojson, get_meteostation_month_data
 from src.get_layer_info import get_feature_data_from_lat_lon
 from src.get_layer_info import get_data_time_bounds
+from src.get_layer_info import get_data_from_meteostation
+from src.get_layer_info import get_station_time_bounds
+from src.get_layer_info import get_station_data_from_lat_lon
 
 ##############################################################################
 # CONFIGURATION
@@ -57,28 +61,34 @@ def close_db_connection(conn):
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/get_time_bounds/<lat>/<lon>/<table>')
-def get_time_bounds(lat, lon, table):
+@app.route('/get_data_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<layer>')
+def get_data_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, layer):
     conn = get_db_connection()
-    time_bounds = get_data_time_bounds(lat, lon, table, conn)
+    feat_info = get_feature_data_from_lat_lon(layer, lat, lon, int(yearFrom), int(monthFrom), int(yearTo), int(monthTo), conn)
     close_db_connection(conn)
-    return jsonify(time_bounds)
+    return jsonify(feat_info)
 
-@app.route('/get_data_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<table>')
-def get_data_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, table):
+@app.route('/get_data_station_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<layer>/<variable>')
+def get_data_station_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, layer, variable):
     conn = get_db_connection()
-    feat_info = get_feature_data_from_lat_lon(table, lat, lon, int(yearFrom), int(monthFrom), int(yearTo), int(monthTo), conn)
+    feat_info = get_station_data_from_lat_lon(layer, variable, lat, lon, int(yearFrom), int(monthFrom), int(yearTo), int(monthTo), conn)
     close_db_connection(conn)
     return jsonify(feat_info)
 
 
 @app.route('/get_feature_info/<layer>/<lat>/<lon>/<date>')
 def get_feature_info(layer, lat, lon, date):
-    table = get_key_config(layer).get('table')
     conn = get_db_connection()
-    feat_info = get_feature_data(table, lat, lon, date, conn)
+    feat_info = get_feature_data(layer, lat, lon, date, conn)
     close_db_connection(conn)
     return jsonify(feat_info)
+
+@app.route('/get_all_meteostations')
+def get_all_meteostations():
+    conn = get_db_connection()
+    feature_collection = get_meteo_stations_geojson(conn)
+    close_db_connection(conn)
+    return jsonify(feature_collection)
 
 @app.route('/get_meteostation_info/<layer>/<lat>/<lon>/<date>')
 def get_meteostation_info(layer, lat, lon, date):
@@ -86,6 +96,14 @@ def get_meteostation_info(layer, lat, lon, date):
     meteostation_info = get_meteostation_month_data(conn, lat, lon, date)
     close_db_connection(conn)
     return jsonify(meteostation_info)
+
+@app.route('/get_data_from_station/<lat>/<lon>/', defaults={'date': None})
+@app.route('/get_data_from_station/<lat>/<lon>/<date>')
+def get_data_from_station(lat, lon, date):
+    conn = get_db_connection()
+    station_data = get_data_from_meteostation(conn, lat, lon, date)
+    close_db_connection(conn)
+    return jsonify(station_data)
 
 @app.route('/get_product_info/<layer>')
 def get_product_info(layer):
@@ -102,13 +120,21 @@ def get_product_info(layer):
 
 @app.route('/clim_chart/<layer>/<lat>/<lon>')
 def clim_chart(layer, lat, lon):
-    table = get_key_config(layer).get('table')
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
     conn = get_db_connection()
-    time_bounds = get_data_time_bounds(lat, lon, table, conn)
+    time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
-    return render_template('clim_chart.html',lat=lat,lon=lon,table=table,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max)
+    return render_template('clim_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max)
+
+@app.route('/clim_station_chart/<layer>/<lat>/<lon>')
+def clim_station_chart(layer, lat, lon):
+    color_min = get_key_config(layer).get('chart_color_min')
+    color_max = get_key_config(layer).get('chart_color_max')
+    conn = get_db_connection()
+    time_bounds = get_station_time_bounds(lat, lon, conn)
+    close_db_connection(conn)
+    return render_template('clim_station_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max)
 
 @app.route('/get_metadata/<layer>')
 def get_metadata(layer):
@@ -137,11 +163,15 @@ def main_map():
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Import meteo CSV to database")
+    parser = argparse.ArgumentParser(description="WebGIS Droughts Application")
     parser.add_argument('--db_os_users', action='store_true', help="Use OS user configuration for DB connection")
+    parser.add_argument('--development', action='store_true', help="Run in development mode")
     args = parser.parse_args()
     if args.db_os_users:
         DB_CON_STR = "dbname=postgres"
-
-    app.run(host="0.0.0.0",debug=True)
+        
+    if args.development:
+        app.run(host="0.0.0.0",debug=True)
+    else:
+        serve(app, host='0.0.0.0', port=5000)
         

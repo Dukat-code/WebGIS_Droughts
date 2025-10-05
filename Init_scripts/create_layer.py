@@ -110,7 +110,7 @@ def get_initial_grid_cell(lat,lon,conn):
         cursor.close()
         return {"xcol": result[0], "yrow": result[1]}
     else:
-        # If no cell contains the point, we find the nearest cell,
+        # If no cell contains the point, but it intersect with some cells,
         # if more than one candidate, we take the minimum x,y as initial
         query = f"""
         SELECT min(xcol), min(yrow)
