@@ -1,15 +1,16 @@
-from flask import Flask, json, jsonify, render_template, Response
+from flask import Flask, json, jsonify, render_template, Response, request
 from flask_cors import CORS
 from waitress import serve
 import configparser
 import os
 import psycopg2
-from src.get_layer_info import get_feature_data, get_meteo_stations_geojson, get_meteostation_month_data
+from src.get_layer_info import get_feature_data, get_layer_time_bounds, get_meteo_stations_geojson, get_meteostation_month_data
 from src.get_layer_info import get_feature_data_from_lat_lon
 from src.get_layer_info import get_data_time_bounds
 from src.get_layer_info import get_data_from_meteostation
 from src.get_layer_info import get_station_time_bounds
 from src.get_layer_info import get_station_data_from_lat_lon
+from src.get_layer_info import export_table_to_netcdf
 
 ##############################################################################
 # CONFIGURATION
@@ -28,25 +29,9 @@ def get_key_config(feat):
 ############################################################################### 
 # Database connection functions 
 ###############################################################################
-DB_CON_STR = ""
-# DBConnection parameters PostgreSQL
-DB_HOST = config.get('database', 'host')
-DB_PORT = config.get('database', 'port')
-DB_NAME = config.get('database', 'name')
-DB_USER = config.get('database', 'user')
-DB_PASSWORD = config.get('database', 'password')
 
 def get_db_connection():
-    if DB_CON_STR:
-        conn = psycopg2.connect(DB_CON_STR)
-    else:
-        conn = psycopg2.connect(
-                    database=DB_NAME,
-                    host=DB_HOST,
-                    user=DB_USER,
-                    password=DB_PASSWORD,
-                    port=DB_PORT
-                )
+    conn = psycopg2.connect(**dict(config.items('database')))
     return conn
 
 def close_db_connection(conn):
@@ -147,6 +132,21 @@ def get_metadata(layer):
     except Exception as e:
         return Response(f"<error>{str(e)}</error>", mimetype='application/xml', status=404)
 
+@app.route('/export_table/<table_name>', methods=['POST'])
+def export_table(table_name):
+    init_date = request.json.get("init_date")
+    end_date = request.json.get("end_date")
+    bbox = request.json.get("bbox") 
+    if bbox == {}:
+        bbox = None
+    output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
+    print(f"Exporting table {table_name} from {init_date} to {end_date} with bbox {bbox} to {output_filename}")
+
+    conn = get_db_connection()
+    result = export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename)
+    close_db_connection(conn)
+    return jsonify(result)
+
 @app.route('/')
 def main_map():
     map_config = get_key_config('map')
@@ -156,6 +156,10 @@ def main_map():
     layer_names = map_config["layers"].split(',')
     for layer_name in layer_names:
         layer = get_key_config(layer_name)
+        conn = get_db_connection()
+        time_bounds = get_layer_time_bounds(layer_name, conn)
+        close_db_connection(conn)
+        layer['time_bounds'] = time_bounds
         layers[layer_name] = layer
     
     map_config['layers'] = layers
@@ -164,11 +168,9 @@ def main_map():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="WebGIS Droughts Application")
-    parser.add_argument('--db_os_users', action='store_true', help="Use OS user configuration for DB connection")
     parser.add_argument('--development', action='store_true', help="Run in development mode")
     args = parser.parse_args()
-    if args.db_os_users:
-        DB_CON_STR = "dbname=postgres"
+
         
     if args.development:
         app.run(host="0.0.0.0",debug=True)

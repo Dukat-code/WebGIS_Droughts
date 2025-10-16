@@ -1,8 +1,18 @@
+import time
 from datetime import datetime
 import decimal
+import os
 import numpy as np
+import pandas as pd
+import geopandas as gpd
+import xarray as xr
 import json
+import dask
+import gc
 
+################################################################
+# Functions to get layer info from the database
+################################################################
 def get_feature_data(layer, lat, lon, date, conn):
     """
     Get feature info from the {layer} based on lat, lon, and date.
@@ -35,7 +45,12 @@ def get_feature_data(layer, lat, lon, date, conn):
 
     except Exception as e:
         return {"error": str(e)}
-        
+
+#  ################################################################
+# Get feature data from the database based on layer, lat, lon, and date range,        
+# returned as a numpy array [year][month], plus avg and st_dev per month
+# for the selected cell over all dates in the table.
+#  ################################################################
 def get_feature_data_from_lat_lon(layer, lat, lon, yearFrom, monthFrom, yearTo, monthTo, conn):
     """
     Get feature info from the database based on layer, lat, lon, and date,
@@ -117,6 +132,9 @@ def get_feature_data_from_lat_lon(layer, lat, lon, yearFrom, monthFrom, yearTo, 
     except Exception as e:
         return {"error": str(e)}
 
+###################################################################
+# Get time bounds for the given location from the view
+###################################################################
 def get_data_time_bounds(lat, lon, layer, conn):
     """
     Get the minimum and maximum year and month for the given location from the view.
@@ -148,6 +166,41 @@ def get_data_time_bounds(lat, lon, layer, conn):
     except Exception as e:
         return None
     
+###################################################################
+# Get time bounds for the given layer from the view
+###################################################################    
+def get_layer_time_bounds(layer, conn):
+    """
+    Get the minimum and maximum year and month for the given location from the view.
+    Returns: {"min_year": int, "min_month": int, "max_year": int, "max_month": int}
+    """
+    try:
+        query = f"""
+            SELECT MIN(date), MAX(date)
+            FROM {layer}
+        """
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            min_date, max_date = cursor.fetchone()
+            if not min_date or not max_date:
+                return None
+            # Ensure min_date and max_date are datetime.date objects
+            if isinstance(min_date, str):
+                min_date = datetime.strptime(min_date, "%Y-%m-%d").date()
+            if isinstance(max_date, str):
+                max_date = datetime.strptime(max_date, "%Y-%m-%d").date()
+            return {
+                "min_year": min_date.year,
+                "min_month": min_date.month,
+                "max_year": max_date.year,
+                "max_month": max_date.month
+            }
+    except Exception as e:
+        return None
+
+################################################################
+# Functions to get meteostation data from the database
+################################################################    
 def get_meteostation_month_data(conn, lat, lon, date):
     """
     Retrieve data from meteostation_month_data for one station within 0.1 degree of the given lat/lon and date.
@@ -199,6 +252,9 @@ def get_meteo_stations_geojson(conn):
         "features": features
     }    
 
+#################################################################
+# Get meteostation data from the database based on lat, lon, and date
+#################################################################
 def get_data_from_meteostation(conn, lat, lon, date):
     try:
         query = """
@@ -226,6 +282,9 @@ def get_data_from_meteostation(conn, lat, lon, date):
     except Exception as e:
         return {"error": str(e)}
 
+#################################################################
+# Get time bounds for the given meteostation location
+#################################################################
 def get_station_time_bounds(lat, lon, conn):
     """
     Get the minimum and maximum year and month for the given meteostation location.
@@ -256,6 +315,11 @@ def get_station_time_bounds(lat, lon, conn):
     except Exception as e:
         return None
 
+#################################################################
+# Get feature data from the database based on layer, lat, lon, and date range,        
+# returned as a numpy array [year][month], plus avg and st_dev per month
+# for the selected cell over all dates in the table.
+#################################################################
 def get_station_data_from_lat_lon(layer, variable, lat, lon, yearFrom, monthFrom, yearTo, monthTo, conn):
     """
     Get feature info from the database based on layer, lat, lon, and date,
@@ -331,4 +395,164 @@ def get_station_data_from_lat_lon(layer, variable, lat, lon, yearFrom, monthFrom
             }
     
     except Exception as e:
+        return {"error": str(e)}
+    
+# ################################################################## 
+# Functions to export data to NetCDF    
+# ##################################################################    
+
+def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_final, yrow_final):
+    """
+    Calculate the latitude and longitude of the centroid of a cell given its xcol and yrow,
+    based on the initial cell's centroid and the grid resolution.
+
+    Parameters:
+        min_xcol (int): xcol of the initial cell
+        min_yrow (int): yrow of the initial cell
+        min_lat (float): latitude of the centroid of the initial cell
+        min_lon (float): longitude of the centroid of the initial cell
+        resolution (float): spatial resolution (in degrees)
+        xcol_final (int): xcol of the target cell
+        yrow_final (int): yrow of the target cell
+
+    Returns:
+        (lat, lon): tuple of latitude and longitude of the centroid of the target cell
+    """
+    delta_x = xcol_final - min_xcol
+    delta_y = yrow_final - min_yrow
+
+    centroid_lat = max_lat - delta_y * resolution
+    centroid_lon = min_lon + delta_x * resolution
+
+    return centroid_lat, centroid_lon
+    
+def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, end_date, bbox, output_filename, chunksize=100000):
+    import gc
+
+    # Get grid bounds and reference cell
+    if bbox:
+        query = f"""
+            SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow)
+            FROM {table_name}
+            WHERE ST_Intersects(cell, ST_MakeEnvelope(%s, %s, %s, %s, 4326));
+        """
+        params = [bbox["min_lon"], bbox["min_lat"], bbox["max_lon"], bbox["max_lat"]]
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            if not result:
+                return {"error": "No data found in the table."}
+            min_xcol, max_xcol, min_yrow, max_yrow = result
+    else:
+        query = f"SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow) FROM {table_name};"
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            min_xcol, max_xcol, min_yrow, max_yrow = cursor.fetchone()
+
+    # Get reference cell centroid
+    query = f"""
+        SELECT xcol, yrow, ST_AsText(ST_Centroid(cell)) AS centroid
+        FROM {table_name}
+        WHERE xcol = %s AND yrow = %s
+        LIMIT 1;
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(query, (min_xcol, min_yrow))
+        result = cursor.fetchone()
+        if not result:
+            return {"error": "No data found in the table."}
+        _, _, centroid_wkt = result
+        coords = centroid_wkt.replace('POINT(', '').replace(')', '').split()
+        min_lon, max_lat = float(coords[0]), float(coords[1])
+
+    # Main data query (only needed columns)
+    query = f"""
+        SELECT t.xcol, t.yrow, t.date, t.value
+        FROM {table_name} t
+        JOIN {grid_name} g ON t.xcol = g.xcol AND t.yrow = g.yrow
+        WHERE t.date BETWEEN %s AND %s
+    """
+    params = [init_date, end_date]
+    if bbox:
+        query += """
+            AND t.xcol BETWEEN %s AND %s
+            AND t.yrow BETWEEN %s AND %s
+        """
+        params.extend([min_xcol, max_xcol, min_yrow, max_yrow])
+
+    # --- Progress setup ---
+    count_query = f"SELECT COUNT(*) FROM ({query}) AS subq"
+    with conn.cursor() as cursor:
+        cursor.execute(count_query, params)
+        total_rows = cursor.fetchone()[0]
+    if total_rows == 0:
+        return {"error": "No data found for the given parameters."}
+
+    def format_hms(seconds):
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        return f"{h:02}:{m:02}:{s:02}"
+
+    all_dfs = []
+    processed_rows = 0
+    last_percent = -1.0
+    start_time = time.time()
+
+    try:
+        for i, df in enumerate(pd.read_sql(query, conn, params=params, chunksize=chunksize)):
+            if df.empty:
+                continue
+
+            # Compute latitude and longitude from xcol/yrow
+            df['latitude'], df['longitude'] = zip(*[
+                get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, row['xcol'], row['yrow'])
+                for _, row in df.iterrows()
+            ])
+
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index(['latitude', 'longitude', 'date'])
+
+            all_dfs.append(df)
+            processed_rows += len(df)
+
+            # Progress reporting
+            percent = (processed_rows / total_rows) * 100
+            elapsed = time.time() - start_time
+            if percent > 0:
+                estimated_total = elapsed / (percent / 100)
+                remaining = estimated_total - elapsed
+            else:
+                remaining = 0
+            if percent - last_percent >= 0.1 or processed_rows == total_rows:
+                print(f"Processed {processed_rows}/{total_rows} rows... ({percent:.1f}%) "
+                      f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
+                last_percent = percent
+
+            del df
+            gc.collect()
+
+        if not all_dfs:
+            return {"error": "No data found for the given parameters."}
+
+        # Concatenate all DataFrames
+        big_df = pd.concat(all_dfs)
+        del all_dfs
+        gc.collect()
+
+        # Aggregate duplicates (if any, should not be) by mean
+        big_df = big_df.groupby(['latitude', 'longitude', 'date']).mean().reset_index()
+        big_df = big_df.set_index(['latitude', 'longitude', 'date'])
+
+        ds = xr.Dataset.from_dataframe(big_df)
+        ds.to_netcdf(output_filename)
+        del ds, big_df
+        gc.collect()
+
+        print("Export completed successfully.")
+
+        return {"success": True, "file": output_filename}
+    except Exception as e:
+        print(f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}")
         return {"error": str(e)}

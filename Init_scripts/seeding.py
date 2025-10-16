@@ -1,21 +1,23 @@
 import os
 import requests
 import psycopg2
+import configparser
 
-# Configuración de conexión a la base de datos PostgreSQL
-DB_HOST = "127.0.0.1"
-DB_PORT = "5432"
-DB_NAME = "droughts"
-DB_USER = "postgres"
-DB_PASSWORD = "postgres"
-# DB config for OS user option
-DB_CONN_STR = "dbname=postgres"
+# Get the path to config.ini
+config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
+
+# Read the config file
+config = configparser.ConfigParser()
+config.read(config_path)
+print("Config file read from:", config_path)
+print("Sections found:", config.sections())
 
 # Configuración de GeoServer
 GEOSERVER_URL = "http://localhost:8080/geoserver"
 USERNAME = "admin"
 PASSWORD = "geoserver"
-LAYER_NAME = "droughts:era5_ecowas_temp"
+LAYER = "era5_ecowas_temp_2"
+LAYER_NAME = f"""droughts:{LAYER}"""
 GRIDSET_ID = "WebMercatorQuad"
 FORMAT = "image/png"
 ZOOM_START = 3
@@ -23,7 +25,7 @@ ZOOM_STOP = 8
 THREAD_COUNT = 4
 
 # Consulta SQL para obtener las fechas
-SQL_QUERY = "SELECT DISTINCT date FROM era5_ecowas ORDER BY date ASC"
+SQL_QUERY = f"""SELECT DISTINCT date FROM {LAYER}_data ORDER BY date ASC"""
 
 def get_dates_from_db(conn):
     cursor = conn.cursor()
@@ -61,17 +63,8 @@ def seed_tiles_for_date(date_str):
     else:
         print(f"Error on seeding init for {date_str}: {response.status_code} - {response.text}")
 
-def main(os_users=False):
-    if os_users:
-        conn = psycopg2.connect(DB_CONN_STR)
-    else:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD
-        )
+def main():
+    conn = psycopg2.connect(**dict(config.items('database')))
     #dates = get_dates_from_db(conn)
     dates = [
                 "1991-01-01",
@@ -91,8 +84,4 @@ def main(os_users=False):
         seed_tiles_for_date(date_str)
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Import meteo CSV to database")
-    parser.add_argument('--os_users', action='store_true', help="Use OS user configuration for DB connection")
-    args = parser.parse_args()
-    main(os_users=args.os_users)
+    main()
