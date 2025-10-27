@@ -9,6 +9,7 @@ import xarray as xr
 import json
 import dask
 import gc
+import xml.etree.ElementTree as ET
 
 ################################################################
 # Functions to get layer info from the database
@@ -429,6 +430,8 @@ def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_
 def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, end_date, bbox, output_filename, chunksize=100000):
     import gc
 
+    print("Exporting table {} to NetCDF...".format(table_name))
+
     # Get grid bounds and reference cell
     if bbox:
         query = f"""
@@ -556,3 +559,59 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
     except Exception as e:
         print(f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}")
         return {"error": str(e)}
+
+# ################################################################
+# Functions to generate and parse SLD files
+# ################################################################    
+def parse_sld_rules(sld_path):
+    try:
+        print(f"Parsing SLD file: {sld_path}")
+        tree = ET.parse(sld_path)
+        root = tree.getroot()
+        ns = {
+            'sld': 'http://www.opengis.net/sld',
+            'ogc': 'http://www.opengis.net/ogc'
+        }
+        rules = []
+        for rule in root.findall('.//sld:Rule', ns):
+            lower = None
+            upper = None
+            color = None
+
+            # Check for PropertyIsBetween
+            between = rule.find('.//ogc:PropertyIsBetween', ns)
+            if between is not None:
+                lower_elem = between.find('.//ogc:LowerBoundary/ogc:Literal', ns)
+                upper_elem = between.find('.//ogc:UpperBoundary/ogc:Literal', ns)
+                if lower_elem is not None:
+                    lower = float(lower_elem.text)
+                if upper_elem is not None:
+                    upper = float(upper_elem.text)
+
+            # Check for PropertyIsLessThanOrEqualTo
+            le = rule.find('.//ogc:PropertyIsLessThanOrEqualTo', ns)
+            if le is not None:
+                upper_elem = le.find('.//ogc:Literal', ns)
+                if upper_elem is not None:
+                    upper = float(upper_elem.text)
+
+            # Check for PropertyIsGreaterThanOrEqualTo
+            ge = rule.find('.//ogc:PropertyIsGreaterThanOrEqualTo', ns)
+            if ge is not None:
+                lower_elem = ge.find('.//ogc:Literal', ns)
+                if lower_elem is not None:
+                    lower = float(lower_elem.text)
+
+            # Get color
+            color_elem = rule.find('.//sld:CssParameter[@name="fill"]/ogc:Literal', ns)
+            if color_elem is not None:
+                color = color_elem.text
+
+            rules.append({
+                'lower_boundary': lower,
+                'upper_boundary': upper,
+                'color': color
+            })
+        return rules
+    except Exception:
+        return None

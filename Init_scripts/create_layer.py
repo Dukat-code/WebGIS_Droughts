@@ -128,29 +128,52 @@ def format_hms(seconds):
 def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, batch_size=5000):
     try:
         cursor = conn.cursor()
-        ds = xr.open_dataset(nc_file)
+        ds = xr.open_dataset("../uploads/" + nc_file)
         print(ds.info())
         print(ds.dims)
         data = ds[value_dim]
         time_vals = ds[time_dim].values
-        long = np.sort(ds[lon_dim].values)  # ascending
-        lat = np.sort(ds[lat_dim].values)[::-1]  # descending
 
-        determine_spatial_resolution(lat)
+        # Get original coordinate arrays and their order
+        lat_raw = ds[lat_dim].values
+        lon_raw = ds[lon_dim].values
+
+        # Map to ascending order and keep index mapping
+        lat_sorted_idx = np.argsort(lat_raw)
+        lon_sorted_idx = np.argsort(lon_raw)
+        lat_sorted = lat_raw[lat_sorted_idx]
+        lon_sorted = lon_raw[lon_sorted_idx]
+
+        # For mapping from value to index in the original array
+        lat_val_to_idx = {v: i for i, v in enumerate(lat_raw)}
+        lon_val_to_idx = {v: i for i, v in enumerate(lon_raw)}
+
+        print("data.values.shape:", data.values.shape)
+        print("data.dims:", data.dims)
+
+        determine_spatial_resolution(lat_sorted)
         create_tables(conn, layer_name)
 
-        min_lat, max_lat = float(np.min(lat)), float(np.max(lat))
-        min_lon, max_lon = float(np.min(long)), float(np.max(long))
+        min_lat, max_lat = float(np.min(lat_sorted)), float(np.max(lat_sorted))
+        min_lon, max_lon = float(np.min(lon_sorted)), float(np.max(lon_sorted))
 
         grid_cells = fetch_grid_cells(conn, min_lon, min_lat, max_lon, max_lat)
+
+        # Figure out axis order for fast NumPy indexing
+        dim_names = list(data.dims)
+        dim_map = {
+            lat_dim: dim_names.index(lat_dim),
+            lon_dim: dim_names.index(lon_dim),
+            time_dim: dim_names.index(time_dim)
+        }
 
         # Decide mode: points inside cells or at vertices
         center_cell = grid_cells[len(grid_cells)//2]
         cell_lat_min, cell_lat_max = center_cell['ymin'], center_cell['ymax']
         cell_lon_min, cell_lon_max = center_cell['xmin'], center_cell['xmax']
 
-        inside_lat_mask = (lat > cell_lat_min) & (lat < cell_lat_max)
-        inside_lon_mask = (long > cell_lon_min) & (long < cell_lon_max)
+        inside_lat_mask = (lat_sorted >= cell_lat_min) & (lat_sorted < cell_lat_max)
+        inside_lon_mask = (lon_sorted >= cell_lon_min) & (lon_sorted < cell_lon_max)
         inside_mode = np.any(inside_lat_mask) and np.any(inside_lon_mask)
 
         at_vertex_mode = False
@@ -163,8 +186,8 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
             ]
             matches = 0
             for vlat, vlon in vertex_coords:
-                lat_idx = np.where(np.isclose(lat, vlat))[0]
-                lon_idx = np.where(np.isclose(long, vlon))[0]
+                lat_idx = np.where(np.isclose(lat_sorted, vlat, atol=1e-4))[0]
+                lon_idx = np.where(np.isclose(lon_sorted, vlon, atol=1e-4))[0]
                 if lat_idx.size > 0 and lon_idx.size > 0:
                     matches += 1
             at_vertex_mode = (matches == 4)
@@ -182,34 +205,45 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
         last_percent = -1.0
         start_time = time_module.time()
 
-        # --- FAST "INSIDE" MODE ---
+        # --- INSIDE MODE ---
         if inside_mode:
-            # Precompute mapping from cell to NetCDF index
+            print("Inside cell mode activated.")
             cell_to_idx = []
             for cell in grid_cells:
                 cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
                 cell_lon_min, cell_lon_max = cell['xmin'], cell['xmax']
-                inside_lat_mask = (lat > cell_lat_min) & (lat < cell_lat_max)
-                inside_lon_mask = (long > cell_lon_min) & (long < cell_lon_max)
-                if np.any(inside_lat_mask) and np.any(inside_lon_mask):
-                    la_idx = np.where(inside_lat_mask)[0][0]
-                    lo_idx = np.where(inside_lon_mask)[0][0]
+                inside_lat_mask = (lat_sorted >= cell_lat_min) & (lat_sorted < cell_lat_max)
+                inside_lon_mask = (lon_sorted >= cell_lon_min) & (lon_sorted < cell_lon_max)
+                lat_indices = np.where(inside_lat_mask)[0]
+                lon_indices = np.where(inside_lon_mask)[0]
+                if lat_indices.size > 0 and lon_indices.size > 0:
+                    # Get the value in sorted array, then map to original index
+                    la_val = lat_sorted[lat_indices[0]]
+                    lo_val = lon_sorted[lon_indices[0]]
+                    la_idx = lat_val_to_idx[la_val]
+                    lo_idx = lon_val_to_idx[lo_val]
                     cell_to_idx.append((cell['xcol'], cell['yrow'], la_idx, lo_idx))
                 else:
                     cell_to_idx.append(None)
 
-            # For each time step, extract all values in one go
             for t_idx, tv in enumerate(time_vals):
-                for i, mapping in enumerate(cell_to_idx):
+                for mapping in cell_to_idx:
                     if mapping is not None:
                         xcol, yrow, la_idx, lo_idx = mapping
-                        val = data.values[t_idx, la_idx, lo_idx]
+                        idx = [None, None, None]
+                        idx[dim_map[lat_dim]] = la_idx
+                        idx[dim_map[lon_dim]] = lo_idx
+                        idx[dim_map[time_dim]] = t_idx
+                        try:
+                            val = data.values[tuple(idx)]
+                        except Exception as err:
+                            print(f"DEBUG: NumPy indexing error for cell ({xcol}, {yrow}), indices: {tuple(idx)}, error={err}")
+                            continue
                         if not np.isnan(val):
                             batch.append((xcol, yrow, float(val), np.datetime_as_string(tv, unit='D')))
                             if len(batch) >= batch_size:
                                 batch_insert(cursor, layer_name, batch)
                                 batch = []
-                    # Progress update
                     progress_count += 1
                     percent = (progress_count / total_iterations) * 100
                     if percent - last_percent >= 0.1 or progress_count == total_iterations:
@@ -226,9 +260,9 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
                     batch_insert(cursor, layer_name, batch)
                     batch = []
 
-        # --- FAST "VERTEX" MODE ---
+        # --- VERTEX MODE ---
         elif at_vertex_mode:
-            # Precompute mapping from cell to 4 NetCDF indices (vertices)
+            print("At vertex mode activated.")
             cell_to_vertex_indices = []
             for cell in grid_cells:
                 cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
@@ -241,23 +275,35 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
                 ]
                 indices = []
                 for vlat, vlon in vertex_coords:
-                    lat_idx = np.where(np.isclose(lat, vlat))[0]
-                    lon_idx = np.where(np.isclose(long, vlon))[0]
-                    if lat_idx.size > 0 and lon_idx.size > 0:
-                        indices.append((lat_idx[0], lon_idx[0]))
+                    lat_idx = np.where(np.isclose(lat_sorted, vlat, atol=1e-4))[0]
+                    lon_idx = np.where(np.isclose(lon_sorted, vlon, atol=1e-4))[0]
+                    if lat_idx.size == 0 or lon_idx.size == 0:
+                        continue
+                    la_val = lat_sorted[lat_idx[0]]
+                    lo_val = lon_sorted[lon_idx[0]]
+                    la_idx = lat_val_to_idx[la_val]
+                    lo_idx = lon_val_to_idx[lo_val]
+                    indices.append((la_idx, lo_idx))
                 if len(indices) == 4:
                     cell_to_vertex_indices.append((cell['xcol'], cell['yrow'], indices))
                 else:
                     cell_to_vertex_indices.append(None)
 
-            # For each time step, extract all values in one go
             for t_idx, tv in enumerate(time_vals):
-                for i, mapping in enumerate(cell_to_vertex_indices):
+                for mapping in cell_to_vertex_indices:
                     if mapping is not None:
                         xcol, yrow, indices = mapping
                         vals = []
                         for la_idx, lo_idx in indices:
-                            val = data.values[t_idx, la_idx, lo_idx]
+                            idx = [None, None, None]
+                            idx[dim_map[lat_dim]] = la_idx
+                            idx[dim_map[lon_dim]] = lo_idx
+                            idx[dim_map[time_dim]] = t_idx
+                            try:
+                                val = data.values[tuple(idx)]
+                            except Exception as err:
+                                print(f"DEBUG: NumPy indexing error for cell ({xcol}, {yrow}), indices: {tuple(idx)}, error={err}")
+                                continue
                             if not np.isnan(val):
                                 vals.append(float(val))
                         if len(vals) == 4:
@@ -266,7 +312,6 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
                             if len(batch) >= batch_size:
                                 batch_insert(cursor, layer_name, batch)
                                 batch = []
-                    # Progress update
                     progress_count += 1
                     percent = (progress_count / total_iterations) * 100
                     if percent - last_percent >= 0.1 or progress_count == total_iterations:
@@ -286,6 +331,12 @@ def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_di
         conn.commit()
         cursor.close()
         print("All data inserted successfully.")
+
+    except Exception as e:
+        print(f"Database or processing error: {e}", file=sys.stderr)
+        conn.rollback()
+        if 'cursor' in locals():
+            cursor.close()
 
     except Exception as e:
         print(f"Database or processing error: {e}", file=sys.stderr)

@@ -20,3 +20,9 @@ CREATE INDEX idx_grid_025dd_xcol ON grid_025dd(xcol);
 CREATE INDEX idx_grid_025dd_yrow ON grid_025dd(yrow);
 CREATE INDEX idx_grid_025dd_xcol_yrow ON grid_025dd(xcol, yrow);
 CREATE INDEX idx_grid_025dd_cell_geom ON grid_025dd USING GIST(cell);
+
+CREATE TABLE IF NOT EXISTS admin_users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
+);

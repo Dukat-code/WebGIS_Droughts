@@ -16,7 +16,7 @@ print("Sections found:", config.sections())
 GEOSERVER_URL = "http://localhost:8080/geoserver"
 USERNAME = "admin"
 PASSWORD = "geoserver"
-LAYER = "era5_ecowas_temp_2"
+LAYER = "era5_ecowas_spi1"
 LAYER_NAME = f"""droughts:{LAYER}"""
 GRIDSET_ID = "WebMercatorQuad"
 FORMAT = "image/png"
@@ -65,7 +65,7 @@ def seed_tiles_for_date(date_str):
 
 def main():
     conn = psycopg2.connect(**dict(config.items('database')))
-    #dates = get_dates_from_db(conn)
+    """
     dates = [
                 "1991-01-01",
                 "1991-06-01",
@@ -78,6 +78,8 @@ def main():
                 "2025-01-01",
                 "2025-06-01"
             ] # Example dates for testing
+    """
+    dates = get_dates_from_db(conn)
     conn.close()
 
     for date_str in dates:

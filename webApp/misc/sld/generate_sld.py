@@ -1,15 +1,25 @@
 import argparse
 import csv
 
+################################################################
+# This script generates an SLD file based on a CSV input file.
+# The CSV should have columns: LowerBoundary, UpperBoundary, color
+# The generated SLD will contain rules for styling based on these boundaries.
+# Usage:
+# python generate_sld.py --name style_name --csv input.csv [--title "Style Title"] [--abstract "Style Abstract"]
+################################################################
 def generate_sld(style_name, csv_file, title="Colors", abstract="Colors depending on value"):
     rules = []
     with open(csv_file, newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            lower = row['LowerBoundary']
-            upper = row['UpperBoundary']
+            lower = row.get('LowerBoundary', '').strip()
+            upper = row.get('UpperBoundary', '').strip()
             color = row['color']
-            rule = f"""
+            # Generate rule based on boundaries
+            if lower and upper:
+                # Both boundaries exist: between
+                rule = f"""
         <Rule>
           <Title>{lower} - {upper}</Title>
           <ogc:Filter>
@@ -34,6 +44,52 @@ def generate_sld(style_name, csv_file, title="Colors", abstract="Colors dependin
             </Fill>
           </PolygonSymbolizer>
         </Rule>"""
+            elif lower and not upper:
+                # Only lower exists: greater than or equal
+                rule = f"""
+        <Rule>
+          <Title>&ge; {lower}</Title>
+          <ogc:Filter>
+            <ogc:PropertyIsGreaterThanOrEqualTo>
+              <ogc:PropertyName>value</ogc:PropertyName>
+              <ogc:Literal>{lower}</ogc:Literal>
+            </ogc:PropertyIsGreaterThanOrEqualTo>
+          </ogc:Filter>
+          <PolygonSymbolizer>
+            <Fill>
+              <CssParameter name="fill">
+                <ogc:Literal>{color}</ogc:Literal>
+              </CssParameter>
+              <CssParameter name="fill-opacity">
+                <ogc:Literal>1.0</ogc:Literal>
+              </CssParameter>
+            </Fill>
+          </PolygonSymbolizer>
+        </Rule>"""
+            elif upper and not lower:
+                # Only upper exists: less than or equal
+                rule = f"""
+        <Rule>
+          <Title>&le; {upper}</Title>
+          <ogc:Filter>
+            <ogc:PropertyIsLessThanOrEqualTo>
+              <ogc:PropertyName>value</ogc:PropertyName>
+              <ogc:Literal>{upper}</ogc:Literal>
+            </ogc:PropertyIsLessThanOrEqualTo>
+          </ogc:Filter>
+          <PolygonSymbolizer>
+            <Fill>
+              <CssParameter name="fill">
+                <ogc:Literal>{color}</ogc:Literal>
+              </CssParameter>
+              <CssParameter name="fill-opacity">
+                <ogc:Literal>1.0</ogc:Literal>
+              </CssParameter>
+            </Fill>
+          </PolygonSymbolizer>
+        </Rule>"""
+            else:
+                continue  # skip rows with neither boundary
             rules.append(rule)
 
     sld_content = f"""<?xml version="1.0" encoding="UTF-8"?>

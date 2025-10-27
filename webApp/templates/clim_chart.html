@@ -45,7 +45,15 @@
             </div>
         </div>
         <script>
-            createElements("{{lat}}","{{lon}}","{{layer}}","{{year_init}}","{{year_end}}","{{color_min}}","{{color_max}}");
+            createElements(
+                "{{lat}}",
+                "{{lon}}",
+                "{{layer}}",
+                "{{year_init}}",
+                "{{year_end}}",
+                "{{color_min}}",
+                "{{color_max}}",
+                {{ style|safe }});
         </script>
     </body>
 </html>
