@@ -26,18 +26,6 @@ TABLE = 'meteostation_month_data'
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
 config.read(config_path)
-db_section = config['database']
-
-# DB config
-DB_CONFIG = {
-    'host': db_section.get('host', 'localhost'),
-    'port': db_section.getint('port', 5432),
-    'dbname': db_section.get('name', 'droughts'),
-    'user': db_section.get('user', 'postgres'),
-    'password': db_section.get('password', '')
-}
-# DB config for OS user option
-DB_CONN_STR = "dbname=postgres"
 
 # Read table creation SQL from meteo_stations.sql
 def create_table_if_not_exists(cur):
@@ -47,11 +35,7 @@ def create_table_if_not_exists(cur):
     cur.execute(sql)
 
 def main(os_users=False):
-    if os_users:
-        conn = psycopg2.connect(DB_CONN_STR)
-    else:
-        conn = psycopg2.connect(**DB_CONFIG)
-    
+    conn = psycopg2.connect(**dict(config.items('database')))
     cur = conn.cursor()
 
     # Create table if not exists

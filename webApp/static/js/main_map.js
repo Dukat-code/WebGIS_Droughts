@@ -33,6 +33,7 @@ class Map {
         }).addTo(this.map);
 
         // Time slider for time series layers
+        // TODO: fetch available dates from server based on active layer
         const availableDates = [
                 "1991-01-01",
                 "1991-06-01",
@@ -61,10 +62,12 @@ class Map {
                 cfg.layers[layerName].get_feature_info_url ? cfg.layers[layerName].get_feature_info_url : cfg.get_feature_info_url,
                 cfg.layers[layerName].legend || '',
                 cfg.layers[layerName].info || '',
+                cfg.layers[layerName].topic,
                 cfg.layers[layerName].active === 'true',
                 cfg.layers[layerName].opacity,
                 cfg.layers[layerName].tms === 'true',
                 cfg.layers[layerName].time === 'true',
+                cfg.layers[layerName].time_bounds || {},
                 cfg.layers[layerName].dateformat || 'yyyy-mm-dd'
             )
         }
@@ -87,9 +90,21 @@ class Map {
         // Feature info control
         this.setFeatureInfoControl();
 
-        
+        // Download widget
+        this.downloadWidget = new DownloadWidget({
+            map: this.map,
+            parent: this
+        });
+
+        // Download control
+        this.setDownloadControl();
     }
 
+    /**
+     * Create a mapping of layers by their topic
+     * @param {*} cfg 
+     * @returns {Object} layersByTopic - { topic: { layerName: {active, opacity, layerObj} }}
+     */
     createLayersByTopic(cfg) {
         const layersByTopic = {};
         for (const layerName in cfg.layers) {
@@ -105,6 +120,9 @@ class Map {
         return layersByTopic;
     }
 
+    /**
+     * Set up the feature info control (info button and click handler)
+     */
     setFeatureInfoControl() {
         // feature info
         this.infoActive = false;
@@ -137,7 +155,8 @@ class Map {
             if (btn) {
                 btn.onclick = () => {
                     // Check if there are any layers on the map
-                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && layer.timeseries);
+                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && 
+                                                                        (layer.timeseries || layer.topic==='facilities'));
                     if (!hasAnyLayer) return;
                     this.infoActive = !this.infoActive;
                     btn.style.background = this.infoActive ? "#2b3e50" : "#888";
@@ -158,14 +177,83 @@ class Map {
         });
     }
 
-    addLayer(name, url, getFeatureUrl, legend, info, active, opacity, tms, time, dateFormat='yyyy-mm-dd') {
-        const layer = L.tileLayer(url, {
-            opacity: opacity,
-            tms: tms
-        });
+    /**
+     *  Set up the download control (download button and widget toggle)
+     */
+    setDownloadControl() {
+        this.downloadActive = false;
+        const downloadControl = L.control({position: 'topright'});
+        downloadControl.onAdd = (map) => {
+            const div = L.DomUtil.create('div', 'download-toggle-control');
+            div.innerHTML = `<button id="download-toggle-btn" title="Toggle Download Widget" style="
+                background: #888;
+                color: #fff;
+                border: none;
+                border-radius: 4px;
+                font-size: 1.2em;
+                padding: 8px 12px;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(44,62,80,0.08);
+            ">
+                <span class="material-icons">&#8595;</span>
+            </button>`;
+            L.DomEvent.disableClickPropagation(div);
+            return div;
+        };
+
+        downloadControl.addTo(this.map);
+
+        setTimeout(() => {
+            const btn = document.getElementById('download-toggle-btn');
+            if (btn) {
+                btn.onclick = () => {
+                    // Check if there are any layers on the map
+                    const hasAnyLayer = Object.values(this.layers).some(layer => this.map.hasLayer(layer) && layer.timeseries);
+                    if (!hasAnyLayer) return;
+                    this.downloadActive = !this.downloadActive;
+                    btn.style.background = this.downloadActive ? "#2b3e50" : "#888";
+                    if (this.downloadActive) {
+                        this.downloadWidget.show();
+                    } else {
+                        this.downloadWidget.hide();
+                    }
+                };
+            }
+        }, 100);
+    }
+
+    /**
+     * Create a new layer and add it to the collection of layers of the map
+     * @param {*} name 
+     * @param {*} url 
+     * @param {*} getFeatureUrl 
+     * @param {*} legend 
+     * @param {*} info 
+     * @param {*} topic 
+     * @param {*} active 
+     * @param {*} opacity 
+     * @param {*} tms 
+     * @param {*} time 
+     * @param {*} timeBounds 
+     * @param {*} dateFormat 
+     */
+    addLayer(name, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, timeBounds, dateFormat='yyyy-mm-dd') {
+        let layer;
+        if(topic==='facilities'){
+            // Special case for facilities: fetch GeoJSON and add as point layer
+            layer = this.createJsonLayer(url);
+        } else {
+            // Standard tile layer
+            layer = L.tileLayer(url, {
+                opacity: opacity,
+                tms: tms
+            });
+        }
         layer.info = info || '';
         layer.legend = legend || '';
         layer.timeseries = time;
+        layer.timeBounds = timeBounds || {};
+        layer.topic = topic || '';
         layer.getFeatureUrl = `${getFeatureUrl}/${name}`;
         if(time){
             layer.dateFormat = dateFormat
@@ -173,12 +261,114 @@ class Map {
 
         if (active) {
             layer.addTo(this.map);
-            this.timeline.setActiveLayer(layer);
+            if (time) {
+                this.timeline.setActiveLayer(layer);
+            }
         }
 
         this.layers[name] = layer;
     }
 
+    /**
+     * Create a GeoJSON layer
+     * @param {*} url 
+     * @returns 
+     */
+    createJsonLayer(url){
+        let layer = L.geoJSON([], {
+            pointToLayer: (feature, latlng) => {
+                return L.circleMarker(latlng, {
+                    radius: 6,
+                    fillColor: "#ff7800",
+                    color: "#000",
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+            },
+            onEachFeature: this.onEachFeature.bind(this)
+        });
+        fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            console.log('GeoJSON data loaded:', data);
+            console.log('Layer before adding data:', layer);
+            layer.addData(data);
+        })
+        .catch(error => {
+            console.error('Error loading GeoJSON data:', error);
+        });
+        return layer;
+    }
+
+    /**
+     * On each feature (for GeoJSON layers), bind popup and set up event listeners
+     * @param {*} feature 
+     * @param {*} layer 
+     */
+    onEachFeature(feature, layer) {
+        const mapInstance = this;
+        let popupContent = `<strong>${feature.properties.name || 'No name'}</strong><br>`;
+        for (const prop in feature.properties) {
+            if (prop !== 'name') {
+                popupContent += `${prop}: ${feature.properties[prop]}<br>`;
+            }
+        }
+        layer.bindPopup(popupContent);
+
+        const getActiveDate = () => mapInstance.activeDate;
+        const getInfoActive = () => mapInstance.infoActive;
+
+        layer.on('popupopen', function(e) {
+            if(!getInfoActive()){
+                layer.closePopup();
+                return;
+            } 
+            const lat = feature.properties.latitude;
+            const lon = feature.properties.longitude;
+            const activeDate = getActiveDate();
+            let url = `/get_data_from_station/${lat}/${lon}`;
+            if(activeDate)
+                url += `/${activeDate}`;
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    let extraInfo = "<hr><strong>Station Data:</strong><br>";
+                    for (const key in data) {
+                        extraInfo += `${key}: ${data[key]}<br>`;
+                    }
+                    if(Object.keys(data).length === 0){
+                        extraInfo += `<em>No data available for this station on date ${activeDate}</em><br>`;
+                    }
+                    // Add "Open chart" button
+                    extraInfo += `<button id="modal-open-btn" title="Open in Modal">Open chart</button>`;
+                    layer.setPopupContent(popupContent + extraInfo);
+
+                    // Attach event listener after popup is rendered
+                    setTimeout(() => {
+                        let title = `Data for Station at (${lat}, ${lon})`;
+                        const btn = document.getElementById('modal-open-btn');
+                        if (btn) {
+                            btn.onclick = () => {
+                                mapInstance.openModal(
+                                    title,
+                                    `http://localhost:5000/clim_station_chart/meteostation_month_data/${lat}/${lon}`
+                                );
+                            };
+                        }
+                    }, 100);
+                })
+                .catch(error => {
+                    layer.setPopupContent(popupContent + "<br><em>Error loading station data</em>");
+                });
+        });
+    }
+
+    /**
+     * Get feature information for a specific latitude/longitude
+     * @param {*} latlng 
+     * @returns 
+     */
     getFeatureInfo(latlng) {
         const lat = latlng.lat.toFixed(4);
         const lon = latlng.lng.toFixed(4);
@@ -239,6 +429,11 @@ class Map {
         
     }
 
+    /**
+     * Open a modal dialog with given title and URL
+     * @param {*} title 
+     * @param {*} url 
+     */
     openModal(title, url) {
         const modal = new ModalWidget({
             title: title,
@@ -440,9 +635,11 @@ class LayerWidget extends Widget {
 
             wrapper.appendChild(line1);              // First line: checkbox + label
             wrapper.appendChild(line2);              // Fifth line: slider
-            wrapper.appendChild(descWrapper);        // Second line: description + info link
-            wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
-            wrapper.appendChild(legendDiv);          // Fourth line: legend
+            if (layer.layerObj.topic !== 'facilities') {
+                wrapper.appendChild(descWrapper);        // Second line: description + info link
+                wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
+                wrapper.appendChild(legendDiv);          // Fourth line: legend
+            }
 
             this.contentDiv.appendChild(wrapper);
         }
@@ -450,14 +647,16 @@ class LayerWidget extends Widget {
 
     onLayerChange(e, layer, legendDiv) {
         if (e.target.checked) {
-            // Uncheck all layers in all topics in the data structure
-            for (const topic in this.layersByTopic) {
-                for (const otherLayerName in this.layersByTopic[topic]) {
-                    const otherLayer = this.layersByTopic[topic][otherLayerName];
-                    if (otherLayer !== layer) {
-                        otherLayer.active = false;
-                        if (otherLayer.layerObj && this.map.hasLayer(otherLayer.layerObj)) {
-                            this.removeLayer(otherLayer.layerObj);
+            if(layer.layerObj.topic !== 'facilities'){
+                // Uncheck all layers in all topics in the data structure
+                for (const topic in this.layersByTopic) {
+                    for (const otherLayerName in this.layersByTopic[topic]) {
+                        const otherLayer = this.layersByTopic[topic][otherLayerName];
+                        if (otherLayer !== layer && otherLayer.layerObj.topic !== 'facilities') {
+                            otherLayer.active = false;
+                            if (otherLayer.layerObj && this.map.hasLayer(otherLayer.layerObj)) {
+                                this.removeLayer(otherLayer.layerObj);
+                            }
                         }
                     }
                 }
@@ -466,10 +665,12 @@ class LayerWidget extends Widget {
             layer.active = true;
             if (layer.layerObj) {
                 layer.layerObj.addTo(this.map);
-                if (layer.layerObj.timeseries) {
-                    this.timeline.setActiveLayer(layer.layerObj);
-                } else {
-                    this.timeline.setActiveLayer(null);
+                if (layer.layerObj.topic !== 'facilities') {
+                    if (layer.layerObj.timeseries) {
+                        this.timeline.setActiveLayer(layer.layerObj);
+                    } else {
+                        this.timeline.setActiveLayer(null);
+                    }
                 }
             }
             legendDiv.style.display = 'block';
@@ -777,4 +978,306 @@ class ModalWidget {
     close() {
         this.overlay.style.display = 'none';
     }
+}
+
+class DownloadWidget extends Widget {
+    constructor(options) {
+        options.id = options.id || 'download-widget';
+        options.title = options.title || 'Download';
+        super(options);
+
+        this.map = options.map;
+        this.activeLayer = null;
+        this.bboxCoords = null;
+        this.parent = options.parent;
+        this.setWidgetStyle();
+        this.renderContent();
+        this.hidden = true;
+        this.hide();
+    }
+
+    setWidgetStyle() {
+        this.container.style.position = 'absolute';
+        this.container.style.left = '0';
+        this.container.style.bottom = '0';
+        this.container.style.width = '100%';
+        this.container.style.borderRadius = '0';
+        this.container.style.zIndex = '20';
+        this.container.style.boxShadow = '0 -2px 8px rgba(44,62,80,0.08)';
+        this.container.style.maxHeight = '10vh';
+        this.container.style.overflow = 'hidden';
+        this.container.id = 'download-widget';
+        
+    }
+
+    renderContent() {
+        this.setContent('');
+
+        // First line: date pickers + download button
+        const dateControls = document.createElement('div');
+        dateControls.className = 'download-date-controls';
+
+        // Left part: date pickers
+        const datePickers = document.createElement('div');
+        datePickers.className = 'download-date-pickers';
+
+        const fromLabel = document.createElement('label');
+        fromLabel.htmlFor = 'fromDate';
+        fromLabel.textContent = 'From: ';
+
+        this.fromDateInput = document.createElement('input');
+        this.fromDateInput.type = 'date';
+        this.fromDateInput.id = 'fromDate';
+        this.fromDateInput.className = 'download-date-input';
+
+        const toLabel = document.createElement('label');
+        toLabel.htmlFor = 'toDate';
+        toLabel.textContent = 'To: ';
+
+        this.toDateInput = document.createElement('input');
+        this.toDateInput.type = 'date';
+        this.toDateInput.id = 'toDate';
+        this.toDateInput.className = 'download-date-input';
+
+        datePickers.appendChild(fromLabel);
+        datePickers.appendChild(this.fromDateInput);
+        datePickers.appendChild(toLabel);
+        datePickers.appendChild(this.toDateInput);
+
+        // Right part: download button
+        this.downloadBtn = document.createElement('button');
+        this.downloadBtn.id = 'download-btn';
+        this.downloadBtn.className = 'download-btn';
+        this.downloadBtn.innerHTML = '&#128190;';
+        this.downloadBtn.onclick = () => this.downloadData();
+
+        
+
+        // Second line: bounding box controls + file name input
+        const bboxDiv = document.createElement('div');
+        bboxDiv.className = 'bbox-controls';
+
+        // Left part: bbox buttons and label
+        const bboxLeft = document.createElement('div');
+        bboxLeft.className = 'bbox-left';
+
+        const drawBtn = document.createElement('button');
+        drawBtn.className = 'download-btn';
+        drawBtn.textContent = 'Draw Bounding Box';
+        drawBtn.onclick = () => this.startDrawBBox();
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'download-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => this.deleteBBox();
+
+        this.bboxCoordsLabel = document.createElement('span');
+        this.bboxCoordsLabel.className = 'bbox-coords-label';
+        this.bboxCoordsLabel.textContent = 'No bounding box selected';
+
+        bboxLeft.appendChild(drawBtn);
+        bboxLeft.appendChild(deleteBtn);
+        bboxLeft.appendChild(this.bboxCoordsLabel);
+
+        // Right part: file name input
+        const fileNameDiv = document.createElement('div');
+        fileNameDiv.className = 'download-file-controls';
+
+        const fileNameLabel = document.createElement('label');
+        fileNameLabel.htmlFor = 'downloadFileName';
+        fileNameLabel.textContent = 'File name: ';
+
+        this.fileNameInput = document.createElement('input');
+        this.fileNameInput.type = 'text';
+        this.fileNameInput.id = 'downloadFileName';
+        this.fileNameInput.className = 'download-file-input';
+        this.fileNameInput.placeholder = 'output_file_name';
+
+        fileNameDiv.appendChild(fileNameLabel);
+        fileNameDiv.appendChild(this.fileNameInput);
+
+        bboxDiv.appendChild(bboxLeft);
+        //bboxDiv.appendChild(fileNameDiv);
+        bboxDiv.appendChild(this.downloadBtn);
+        dateControls.appendChild(datePickers);
+        dateControls.appendChild(fileNameDiv);
+
+        // Add both lines to the widget
+        const controls = document.createElement('div');
+        controls.className = 'download-controls';
+        controls.appendChild(dateControls);
+        controls.appendChild(bboxDiv);
+
+        this.contentDiv.appendChild(controls);
+    }
+
+    downloadData() {
+        const table_name = this.activeLayerName ? this.activeLayerName : null;
+        if(!table_name){
+            alert('No active layer with data to download.');
+            return;
+        }
+        const init_date = this.fromDateInput.value;
+        const end_date = this.toDateInput.value;
+        if (!init_date || !end_date) {
+            alert('Please select both From and To dates.');
+            return;
+        }
+        if (init_date > end_date) {
+            alert('From date must be earlier than To date.');
+            return;
+        }
+        // Default file name if not provided
+        let fileName = '../downloads/';
+        fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}.nc`;
+        if (!fileName.endsWith('.nc')) fileName += '.nc';
+        // Get bounding box coordinates if available
+        const bbox = this.bboxCoords
+            ? {
+                min_lat: this.bboxCoords.minLat,
+                min_lon: this.bboxCoords.minLon,
+                max_lat: this.bboxCoords.maxLat,
+                max_lon: this.bboxCoords.maxLon
+            }
+            : {};
+
+        // Call Flask backend to export table
+        fetch(`/export_table/${table_name}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                init_date: init_date,
+                end_date: end_date,
+                bbox: bbox,
+                output_filename: fileName
+            })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                alert(`File exported: ${result.file}`);
+                // Optionally, trigger download or show link
+            } else {
+                alert(`Error: ${result.error}`);
+            }
+        })
+        .catch(error => {
+            alert(`Error: ${error}`);
+        });
+        
+    }
+
+    updateDatePickers() {
+        if (!this.activeLayer || !this.activeLayer.timeBounds) return;
+        const bounds = this.activeLayer.timeBounds;
+        // Expecting bounds: {min_year, min_month, max_year, max_month}
+        const minDate = `${bounds.min_year}-${String(bounds.min_month).padStart(2, '0')}-01`;
+        const maxDate = `${bounds.max_year}-${String(bounds.max_month).padStart(2, '0')}-28`;
+
+        this.fromDateInput.min = minDate;
+        this.fromDateInput.max = maxDate;
+        this.toDateInput.min = minDate;
+        this.toDateInput.max = maxDate;
+
+        // Set default values
+        this.fromDateInput.value = minDate;
+        this.toDateInput.value = maxDate;
+    }
+
+    show() {
+        this.hidden = false;
+        this.container.style.display = '';
+        // Find the active layer
+        this.activeLayerName = Object.keys(this.parent.layers).find(layerName => 
+            this.map.hasLayer(this.parent.layers[layerName]) && this.parent.layers[layerName].timeseries
+        );
+        this.activeLayer = this.parent.layers[this.activeLayerName];
+        this.updateDatePickers();
+        // Resize the map to leave space for the widget
+        const mapDiv = document.getElementById('map');
+        if (mapDiv) {
+            mapDiv.style.height = 'calc(100% - 20vh)';
+            if (this.map && this.map.invalidateSize) {
+                this.map.invalidateSize();
+            }
+        }
+    }
+    
+    hide() {
+        this.hidden = true;
+        this.container.style.display = 'none';
+        // Resize the map to take all available space
+        const mapDiv = document.getElementById('map');
+        if (mapDiv) {
+            mapDiv.style.height = '100%';
+            if (this.map && this.map.invalidateSize) {
+                this.map.invalidateSize();
+            }
+        }
+    }
+
+    startDrawBBox() {
+        // Use Leaflet's built-in rectangle drawing if available, or implement simple click/drag
+        if (this._drawing) return;
+        this._drawing = true;
+        this.bboxLayer && this.map.removeLayer(this.bboxLayer);
+
+        // Use Leaflet Draw if available
+        if (window.L && L.Draw && L.Draw.Rectangle) {
+            if (!this._drawControl) {
+                this._drawControl = new L.Draw.Rectangle(this.map, { shapeOptions: { color: '#3388ff' } });
+            }
+            this._drawControl.enable();
+
+            this.map.once('draw:created', (e) => {
+                this.bboxLayer = e.layer;
+                this.bboxLayer.addTo(this.map);
+                this._drawing = false;
+                this._drawControl.disable();
+                this.setBBoxCoords(this.bboxLayer.getBounds());
+            });
+        } else {
+            // Fallback: simple rectangle by two clicks
+            let clickCount = 0;
+            let corners = [];
+            const onClick = (e) => {
+                corners.push([e.latlng.lat, e.latlng.lng]);
+                clickCount++;
+                if (clickCount === 2) {
+                    this.map.off('click', onClick);
+                    const bounds = L.latLngBounds(corners[0], corners[1]);
+                    this.bboxLayer = L.rectangle(bounds, { color: "#3388ff", weight: 2 });
+                    this.bboxLayer.addTo(this.map);
+                    this.setBBoxCoords(bounds);
+                    this._drawing = false;
+                }
+            };
+            this.map.on('click', onClick);
+        }
+    }
+
+    setBBoxCoords(bounds) {
+        // bounds: Leaflet LatLngBounds
+        const sw = bounds.getSouthWest();
+        const ne = bounds.getNorthEast();
+        this.bboxCoords = {
+            minLat: sw.lat,
+            minLon: sw.lng,
+            maxLat: ne.lat,
+            maxLon: ne.lng
+        };
+        this.bboxCoordsLabel.textContent = 
+            `BBox: [${sw.lat.toFixed(4)}, ${sw.lng.toFixed(4)}] to [${ne.lat.toFixed(4)}, ${ne.lng.toFixed(4)}]`;
+    }
+
+    deleteBBox() {
+        if (this.bboxLayer) {
+            this.map.removeLayer(this.bboxLayer);
+            this.bboxLayer = null;
+        }
+        this.bboxCoords = null;
+        this.bboxCoordsLabel.textContent = 'No bounding box selected';
+        this._drawing = false;
+    }
+
 }

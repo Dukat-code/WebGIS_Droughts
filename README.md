@@ -75,6 +75,32 @@ python init_layer_data.py
 This is an initial version. It will be adjusted to work with the correct grids of JRC
 
 # ###################################################
+# create_layer.py
+# ###################################################
+This script creates new climate data layers in the database. It reads configuration parameters and grid definitions, processes NetCDF files, and generates the necessary tables and SQL views for the new layer.
+
+**Command-line parameters:**
+
+- `--nc_file`: Path to the NetCDF file (mandatory)
+- `--layer_name`: Name of the layer to create (mandatory)
+- `--value_dim`: Name of the value dimension in the NetCDF file (mandatory)
+- `--time_dim`: Name of the time dimension (optional, default: "time")
+- `--lon_dim`: Name of the longitude dimension (optional, default: "lon")
+- `--lat_dim`: Name of the latitude dimension (optional, default: "lat")
+- `--db_os_users`: If set, uses OS user configuration for the database connection (default: not set, uses configuration from `config.ini`)
+
+**Example usage:**
+
+python create_layer.py --nc_file data.nc --layer_name drought_index --value_dim value
+
+**Functionality:**
+- Reads grid definitions from `config.ini`
+- Processes NetCDF files to extract data
+- Creates database tables and views for the new layer
+- Choses the geometry grid depending on the resolution of the NetCDF file
+
+
+# ###################################################
 # seeding.py
 # ###################################################
 The script seeds (pre-generates) map tiles for a specified layer in GeoServer using a list of dates.  

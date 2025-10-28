@@ -1,0 +1,8 @@
+LowerBoundary,UpperBoundary,color
+,-2,#FF0000
+-2,-1.5,#FFA727
+-1.5,-1,#FFFC3B
+-1,1,#FFFFFF
+1,1.5,#EBCDF7
+1.5,2,#B555C0
+2,,#7F0B78

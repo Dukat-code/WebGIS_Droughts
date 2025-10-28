@@ -117,3 +117,7 @@ button, input[type="button"] {
 button:hover, input[type="button"]:hover {
     background: #1a2733;
 }
+
+.selector {
+    width: 100%;
+}

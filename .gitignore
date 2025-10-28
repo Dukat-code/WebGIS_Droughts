@@ -67,7 +67,7 @@ pytestdebug.log
 Thumbs.db
 
 # CSV, NetCDF, and other data files
-*.csv
+#*.csv
 *.nc
 
 # Config files (if you want to ignore local config)
@@ -81,5 +81,8 @@ Thumbs.db
 Init_scripts/*.csv
 Init_scripts/*.nc
 
-# Ignore PostgreSQL dumps
+# Ignore PostgreSQL dumps for grids
 #*.sql
+grid_1dd.sql
+grid_05dd.sql
+grid_025dd.sql

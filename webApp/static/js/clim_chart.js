@@ -1,15 +1,21 @@
 var chart = null;
-let year_init, year_end, colorMin, colorMax;
+let year_init, year_end, colorMin, colorMax, chart_style;
 const monthNames = [
                     "January", "February", "March", "April", "May", "June",
                     "July", "August", "September", "October", "November", "December"
                     ];
 
-function createElements(lat,lon,table,year_init,year_end, color_min, color_max){
-    console.log(lat,lon,table,year_init,year_end, color_min, color_max);
+function createElements(lat,lon,layer,year_init,year_end, color_min, color_max, style){
+    console.log(lat,lon,layer,year_init,year_end, color_min, color_max, style);
 
-    colorMin = color_min&&(color_min!=='None')?color_min:'rgba(56, 140, 193, 0.8)';
-    colorMax = color_max&&(color_max!=='None')?color_max:'rgba(62, 167, 234, 0.48)';
+    if(style && (style !== 'null')){
+        console.log('Using SLD for colors');
+        console.log(style)
+        chart_style = style;
+    } else {
+        colorMin = color_min&&(color_min!=='None')?color_min:'rgba(56, 140, 193, 0.8)';
+        colorMax = color_max&&(color_max!=='None')?color_max:'rgba(62, 167, 234, 0.48)';
+    }
     console.log(colorMin,colorMax);
     let container = document.getElementById("container");
     let yearFromSlider = document.getElementById("yearFromSlider");
@@ -41,7 +47,7 @@ function createElements(lat,lon,table,year_init,year_end, color_min, color_max){
         +monthFromSlider.value+1,
         +yearTo.value,
         +monthToSlider.value+1,
-        table
+        layer
     );
 
     getData(
@@ -51,17 +57,17 @@ function createElements(lat,lon,table,year_init,year_end, color_min, color_max){
         +monthFromSlider.value+1,
         +yearTo.value,
         +monthToSlider.value+1,
-        table
+        layer
     );
 
 }
 
-function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,table){
+function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer){
     console.log(yearFrom);
     console.log(monthFrom);
     console.log(yearTo);
     console.log(monthTo);
-    fetch(`http://127.0.0.1:5000/get_data_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${table}`)
+    fetch(`http://127.0.0.1:5000/get_data_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}`)
     .then(response => response.json())
     .then(r => {
         console.log(r);
@@ -102,47 +108,75 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,table){
 
 function draw_chart(data,avg,stdPlus,stdMinus,labels)
 {
+    let backgroundColors = [];
     const ctx = document.getElementById('myChart');
-    console.log(colorMax,colorMin);
-    const backgroundColors = data.map((v,i)=>v>=avg[i]?colorMax:colorMin);
-    console.log(backgroundColors);
+    if(chart_style && (chart_style !== 'null')){
+        console.log('Using SLD for colors');
+        console.log(chart_style)
+        backgroundColors = data.map(
+            (v)=>chart_style.find(r=>{
+                if(r.lower_boundary===null){
+                    return v<=r.upper_boundary;
+                } else if(r.upper_boundary===null){
+                    return v>r.lower_boundary;
+                } else {
+                    return (v>r.lower_boundary)&&(v<=r.upper_boundary);
+                }
+            }).color
+        );
+        console.log(data);
+        console.log(backgroundColors);
+    } else {
+        console.log("Using default colors");
+        console.log(colorMax,colorMin);
+        backgroundColors = data.map((v,i)=>v>=avg[i]?colorMax:colorMin);
+        console.log(backgroundColors);
+    }
     if(chart) chart.destroy();
-    chart = new Chart(ctx, {
-        data: {
-        labels: labels,
-        datasets: [
-            {   
+    let datasets = [];
+    if(!chart_style || (chart_style === 'null')){
+        datasets.push(
+            [
+                {   
                 type: 'line',
                 label: 'std+',
                 data: stdPlus,
                 borderWidth: 1,
                 borderColor: 'rgba(122, 141, 171, 0.2)',
-            },
-            {   
-                type: 'line',
-                label: 'std-',
-                data: stdMinus,
-                borderWidth: 1,
-                borderColor: 'rgba(122, 141, 171, 0.2)',
-                backgroundColor: 'rgba(122, 141, 171, 0.2)',
-                fill: '-1'
-            },
-            {
-                type: 'line',
-                label: 'avg',
-                data: avg,
-                borderColor: 'rgba(230, 94, 40, 1)',
-                borderWidth: 3
-            },
-            {   
-                type: 'bar',
-                label: 'data',
-                data: data,
-                borderColor: 'rgba(0, 75, 123, 1)',
-                backgroundColor: backgroundColors,
-                borderWidth: 1
-            }
-        ]},
+                },
+                {   
+                    type: 'line',
+                    label: 'std-',
+                    data: stdMinus,
+                    borderWidth: 1,
+                    borderColor: 'rgba(122, 141, 171, 0.2)',
+                    backgroundColor: 'rgba(122, 141, 171, 0.2)',
+                    fill: '-1'
+                },
+                {
+                    type: 'line',
+                    label: 'avg',
+                    data: avg,
+                    borderColor: 'rgba(230, 94, 40, 1)',
+                    borderWidth: 3
+                }
+            ]
+        );
+    }
+    datasets.push(
+        {   
+            type: 'bar',
+            label: 'data',
+            data: data,
+            borderColor: 'rgba(0, 75, 123, 1)',
+            backgroundColor: backgroundColors,
+            borderWidth: 1
+        }
+    );
+    chart = new Chart(ctx, {
+        data: {
+        labels: labels,
+        datasets: datasets},
         options: {
         scales: {
             y: {
