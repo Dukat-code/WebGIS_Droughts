@@ -10,4 +10,4 @@ CREATE DATABASE droughts
     LC_CTYPE = 'en_US.utf8'
     TABLESPACE = pg_default
     CONNECTION LIMIT = -1
-    IS_TEMPLATE = False;
+    TEMPLATE = template0;
