@@ -12,6 +12,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+uploads/
 eggs/
 .eggs/
 lib/
@@ -68,7 +69,7 @@ Thumbs.db
 
 # CSV, NetCDF, and other data files
 #*.csv
-*.nc
+#*.nc
 
 # Config files (if you want to ignore local config)
 #config/config.ini
@@ -83,6 +84,6 @@ Init_scripts/*.nc
 
 # Ignore PostgreSQL dumps for grids
 #*.sql
-grid_1dd.sql
-grid_05dd.sql
-grid_025dd.sql
+#grid_1dd.sql
+#grid_05dd.sql
+#grid_025dd.sql

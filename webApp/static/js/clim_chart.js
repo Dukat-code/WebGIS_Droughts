@@ -133,10 +133,9 @@ function draw_chart(data,avg,stdPlus,stdMinus,labels)
         console.log(backgroundColors);
     }
     if(chart) chart.destroy();
-    let datasets = [];
+    let data_sets = [];
     if(!chart_style || (chart_style === 'null')){
-        datasets.push(
-            [
+        data_sets.push(
                 {   
                 type: 'line',
                 label: 'std+',
@@ -160,10 +159,9 @@ function draw_chart(data,avg,stdPlus,stdMinus,labels)
                     borderColor: 'rgba(230, 94, 40, 1)',
                     borderWidth: 3
                 }
-            ]
         );
     }
-    datasets.push(
+    data_sets.push(
         {   
             type: 'bar',
             label: 'data',
@@ -173,10 +171,11 @@ function draw_chart(data,avg,stdPlus,stdMinus,labels)
             borderWidth: 1
         }
     );
+    console.log(data_sets);
     chart = new Chart(ctx, {
         data: {
         labels: labels,
-        datasets: datasets},
+        datasets: data_sets},
         options: {
         scales: {
             y: {
