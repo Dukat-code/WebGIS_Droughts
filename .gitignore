@@ -12,6 +12,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+uploads/
 eggs/
 .eggs/
 lib/
@@ -68,7 +69,7 @@ Thumbs.db
 
 # CSV, NetCDF, and other data files
 #*.csv
-*.nc
+#*.nc
 
 # Config files (if you want to ignore local config)
 #config/config.ini
