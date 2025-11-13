@@ -3,10 +3,12 @@
 Depending on the features of the system that will host the database, proceed to the installation of PostgreSQL DBMS with extension PostGIS
 (PostgreSQL v >= 14.19, PostGIS v >= 3.2.0)
 
-1.1) Install DBMS following the right method
+1.1) Install DBMS following the right method, install the PostGIS extension
 i.e.: sudo apt install postgresql postgresql-contrib -y
 
-1.2) Run script for DB creation
+We provide scripts to cre
+
+1.2) Run script for DB creation. Run the script to add PostGIS if required (add_postgis_ext.sh)
 1.3) Run scripts for grids creation
 1.4) Run scripts for DB setup 
 
