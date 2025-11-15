@@ -3,14 +3,25 @@
 Depending on the features of the system that will host the database, proceed to the installation of PostgreSQL DBMS with extension PostGIS
 (PostgreSQL v >= 14.19, PostGIS v >= 3.2.0)
 
-1.1) Install DBMS following the right method, install the PostGIS extension
+IMPORTANT: Ensure the DB listens connections not only from localhost and the machine(s) containing
+the other components (if they are not in the same machine) have visibility with the database
+
+1.1) Install DBMS following the right method (install the PostGIS extension if not installed together)
 i.e.: sudo apt install postgresql postgresql-contrib -y
 
-We provide scripts to cre
+We provide a script to install the extension PostGIS in Linux Ubuntu 22.04 if required (install_PostGIS.sh).
+Do not forget to set a password for the user postgres.
 
-1.2) Run script for DB creation. Run the script to add PostGIS if required (add_postgis_ext.sh)
+1.2) Run script for DB creation. 
+i.e.: i.e.: sudo -u postgres psql -d droughts -f db_creation.sql
+Run the script to add PostGIS if required (add_postgis_ext.sh)
+
 1.3) Run scripts for grids creation
+i.e:
+./grids_creation.sh grid_1dd.sql droughts postgres localhost 5432
+
 1.4) Run scripts for DB setup 
+i.e.: sudo -u postgres psql -d droughts -f db_setup.sql
 
 2) Installation of GeoServer
 
@@ -18,8 +29,8 @@ Depending on the features of the system that will host GeoServer, proceed to the
 (v>= 2.27.2, requires OpenJDK v>= 17.0). Depending on the chosen option, it may be necessary either install tomcat and deploy inside GeoServer, or downloading a "standalone" distribution
 (that hosts GeoSever in a self-contained Jetty server). 
 
-2.1) Create the workspace for the WebApplication
-2.2) Create the connection to the database
+2.1) Create the workspace droughts for the WebApplication
+2.2) Create the connection to the database (data store droughts)
 2.3) Create the required styles
 
 3) Installation of WebApplication

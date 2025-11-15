@@ -1,9 +1,17 @@
+/* Consistent box-sizing for all browsers */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     font-family: 'Segoe UI', Arial, sans-serif;
     background: #f5f6fa;
 }
 
+/* --- NAVBAR --- */
 .main-navbar {
     width: 100vw;
     background: #2b3e50;
@@ -11,10 +19,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0; /* Remove side padding */
+    padding: 0;
     height: 56px;
     box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
-    box-sizing: border-box;
 }
 
 .navbar-title {
@@ -42,19 +49,12 @@ body {
     background: #1a2733;
 }
 
-#map-container {
-    position: relative;
-    width: 100vw;
-    height: calc(100vh - 56px); /* or height: 100vh; if navbar is outside */
-    overflow: hidden;
-}
-
+/* --- MAP CONTAINER --- */
 #map-container {
     position: relative;
     width: 100vw;
     height: calc(100vh - 56px);
     overflow: hidden;
-    box-sizing: border-box;
 }
 
 #map {
@@ -66,6 +66,7 @@ body {
     z-index: 1;
 }
 
+/* --- WIDGETS --- */
 .widget {
     position: absolute;
     top: 24px;
@@ -77,7 +78,7 @@ body {
     box-shadow: 0 4px 16px rgba(44, 62, 80, 0.12);
     z-index: 10;
     transition: box-shadow 0.2s;
-    overflow: scroll;
+    overflow: auto;
 }
 
 .widget-header {
@@ -111,57 +112,124 @@ body {
     transform: rotate(180deg);
 }
 
-/* Example for multiple widgets */
 #layer-widget {
     top: 24px;
     left: 24px;
 }
 
-/* Style for input sliders in widgets */
-.widget-content input[type="range"] {
-    accent-color: #2b3e50; /* Modern browsers */
+/* --- SLIDER STYLES FOR CROSS-BROWSER CONSISTENCY --- */
+input[type="range"],
+.widget-content input[type="range"],
+.timeline-slider {
+    accent-color: #2b3e50;
+    width: 100%;
+    height: 6px;
+    background: transparent;
+    border-radius: 4px;
+    margin: 8px 0;
+    -webkit-appearance: none;
+    appearance: none;
 }
 
-/* For better cross-browser support, customize the track and thumb */
-.widget-content input[type="range"]::-webkit-slider-thumb {
+/* Chrome & Edge */
+input[type="range"]::-webkit-slider-thumb,
+.widget-content input[type="range"]::-webkit-slider-thumb,
+.timeline-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
     background: #2b3e50;
     border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    box-shadow: 0 0 2px rgba(44,62,80,0.15);
+    margin-top: -6px; /* Align thumb vertically */
 }
 
-.widget-content input[type="range"]::-webkit-slider-runnable-track {
+input[type="range"]::-webkit-slider-runnable-track,
+.widget-content input[type="range"]::-webkit-slider-runnable-track,
+.timeline-slider::-webkit-slider-runnable-track {
     background: #2b3e50;
+    height: 6px;
+    border-radius: 4px;
 }
 
-.widget-content input[type="range"]::-moz-range-thumb {
+/* Firefox */
+input[type="range"]::-moz-range-thumb,
+.widget-content input[type="range"]::-moz-range-thumb,
+.timeline-slider::-moz-range-thumb {
     background: #2b3e50;
     border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
 }
 
-.widget-content input[type="range"]::-moz-range-track {
+input[type="range"]::-moz-range-track,
+.widget-content input[type="range"]::-moz-range-track,
+.timeline-slider::-moz-range-track {
     background: #2b3e50;
+    height: 6px;
+    border-radius: 4px;
 }
 
-.widget-content input[type="range"]::-ms-thumb {
+/* IE */
+input[type="range"]::-ms-thumb,
+.widget-content input[type="range"]::-ms-thumb,
+.timeline-slider::-ms-thumb {
     background: #2b3e50;
     border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
 }
 
+input[type="range"]::-ms-fill-lower,
+input[type="range"]::-ms-fill-upper,
 .widget-content input[type="range"]::-ms-fill-lower,
-.widget-content input[type="range"]::-ms-fill-upper {
+.widget-content input[type="range"]::-ms-fill-upper,
+.timeline-slider::-ms-fill-lower,
+.timeline-slider::-ms-fill-upper {
     background: #2b3e50;
+    border-radius: 4px;
 }
 
-/* Style for checked checkboxes in widgets */
+/* Remove default appearance for Chrome/Edge */
+input[type="range"]:focus,
+.widget-content input[type="range"]:focus,
+.timeline-slider:focus {
+    outline: none;
+}
+
+/* Remove default background for Firefox */
+input[type="range"]::-moz-focus-outer {
+    border: 0;
+}
+
+/* Hide the outline in Firefox when focused */
+input[type="range"]:focus::-moz-range-thumb {
+    box-shadow: 0 0 0 2px #1a2733;
+}
+
+/* Remove border in IE */
+input[type="range"]::-ms-tooltip {
+    display: none;
+}
+
+/* --- CHECKBOXES --- */
 .widget-content input[type="checkbox"]:checked {
-    accent-color: #2b3e50; /* Modern browsers */
+    accent-color: #2b3e50;
 }
 
-/* For older browsers, you can try customizing the appearance */
 .widget-content input[type="checkbox"] {
     width: 18px;
     height: 18px;
 }
 
+/* --- DROPDOWN --- */
 .topic-dropdown {
     width: 100%;
     margin-bottom: 12px;
@@ -172,6 +240,8 @@ body {
     background: #f5f6fa;
     color: #2b3e50;
 }
+
+/* --- LAYER CONTROLS --- */
 .layer-control-row {
     display: flex;
     align-items: center;
@@ -221,6 +291,7 @@ body {
     box-shadow: 0 2px 8px rgba(44,62,80,0.05);
     min-width: 140px;
 }
+
 .legend-toggle-btn {
     background: #2b3e50;
     color: #fff;
@@ -234,7 +305,7 @@ body {
     background: #1a2733;
 }
 
-/* Timeline widget container */
+/* --- TIMELINE WIDGET --- */
 #timeline-widget {
     position: absolute;
     left: 0;
@@ -250,7 +321,6 @@ body {
     top: unset !important;
 }
 
-/* Timeline controls layout */
 .timeline-controls {
     display: flex;
     align-items: center;
@@ -259,10 +329,8 @@ body {
     padding: 12px 24px;
     background: #fff;
     border-top: 2px solid #2b3e50;
-    box-sizing: border-box;
 }
 
-/* Play/Pause and Reload buttons */
 .timeline-btn {
     background: #2b3e50;
     color: #fff;
@@ -281,63 +349,6 @@ body {
     background: #1a2733;
 }
 
-/* Time slider */
-.timeline-slider {
-    flex: 1;
-    accent-color: #2b3e50;
-    margin: 0 12px;
-    height: 6px;
-    border-radius: 4px;
-    background: #e0e4ea;
-}
-
-/* Slider thumb and track for cross-browser support */
-.timeline-slider::-webkit-slider-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-}
-
-.timeline-slider::-webkit-slider-runnable-track {
-    background: #2b3e50;
-    height: 6px;
-    border-radius: 4px;
-}
-
-.timeline-slider::-moz-range-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-}
-
-.timeline-slider::-moz-range-track {
-    background: #2b3e50;
-    height: 6px;
-    border-radius: 4px;
-}
-
-.timeline-slider::-ms-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-}
-
-.timeline-slider::-ms-fill-lower,
-.timeline-slider::-ms-fill-upper {
-    background: #2b3e50;
-    border-radius: 4px;
-}
-
-/* Date label */
 .timeline-date-label {
     font-weight: bold;
     color: #2b3e50;
@@ -355,6 +366,7 @@ body {
     background: transparent;
 }
 
+/* --- MODAL --- */
 .modal-overlay {
     position: fixed;
     top: 0; left: 0;
@@ -413,7 +425,8 @@ body {
     height: 35px;
     width: 40px;
 }
-/* Download widget container */
+
+/* --- DOWNLOAD WIDGET --- */
 #download-widget {
     position: absolute;
     left: 0;
@@ -429,7 +442,6 @@ body {
     top: unset !important;
 }
 
-/* Download controls layout */
 .download-controls {
     display: flex;
     flex-direction: column;

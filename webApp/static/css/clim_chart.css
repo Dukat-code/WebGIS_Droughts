@@ -1,37 +1,135 @@
-.dashboard{
+/* Consistent box-sizing for all browsers */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+.dashboard {
     display: flex;
 }
+
 .ctrlPanel {
     width: 30%;
     height: 80%;
 }
+
 .chart {
     width: 60%;
     height: 100%;
 }
-.title{
+
+.title {
     display: block;
-    text-align:center;
+    text-align: center;
     margin-bottom: 20px;
     margin-top: 10px;
     font-weight: bold;
 }
-.year{
+
+.year {
     display: block;
     width: 15%;
     margin: auto;
     margin-bottom: 8px;
     text-align: center;
 }
-.month{
+
+.month {
     display: block;
     width: 20%;
     margin: auto;
     margin-bottom: 8px;
     text-align: center;
 }
-.slider{
+
+.slider {
     width: 100%;
+}
+
+/* Cross-browser slider styles for consistent appearance */
+input[type="range"],
+.slider {
+    accent-color: #2b3e50;
+    width: 100%;
+    height: 6px;
+    background: transparent;
+    border-radius: 4px;
+    margin: 8px 0;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Chrome & Edge */
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #2b3e50;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    box-shadow: 0 0 2px rgba(44,62,80,0.15);
+    margin-top: -6px; /* Align thumb vertically */
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    background: #2b3e50;
+    height: 6px;
+    border-radius: 4px;
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-thumb {
+    background: #2b3e50;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+input[type="range"]::-moz-range-track {
+    background: #2b3e50;
+    height: 6px;
+    border-radius: 4px;
+}
+
+/* IE */
+input[type="range"]::-ms-thumb {
+    background: #2b3e50;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+input[type="range"]::-ms-fill-lower,
+input[type="range"]::-ms-fill-upper {
+    background: #2b3e50;
+    border-radius: 4px;
+}
+
+/* Remove default appearance for Chrome/Edge */
+input[type="range"]:focus {
+    outline: none;
+}
+
+/* Remove default background for Firefox */
+input[type="range"]::-moz-focus-outer {
+    border: 0;
+}
+
+/* Hide the outline in Firefox when focused */
+input[type="range"]:focus::-moz-range-thumb {
+    box-shadow: 0 0 0 2px #1a2733;
+}
+
+/* Remove border in IE */
+input[type="range"]::-ms-tooltip {
+    display: none;
 }
 
 .scale {
@@ -44,13 +142,12 @@
     position: relative;
 }
 
-.control{
+.control {
     width: 95%;
 }
 
-.setButton{
+.setButton {
     display: block;
-    /* background-color: rgb(88, 86, 86); */
     border: none;
     color: white;
     padding: 20px;
@@ -69,41 +166,9 @@
     position: fixed;
 }
 
-/* Sliders */
-input[type="range"] {
-    accent-color: #2b3e50;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-    background: #2b3e50;
-}
-
-input[type="range"]::-moz-range-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-}
-
-input[type="range"]::-moz-range-track {
-    background: #2b3e50;
-}
-
-input[type="range"]::-ms-thumb {
-    background: #2b3e50;
-    border: 2px solid #fff;
-}
-
-input[type="range"]::-ms-fill-lower,
-input[type="range"]::-ms-fill-upper {
-    background: #2b3e50;
-}
-
 /* Buttons */
-button, input[type="button"] {
+button,
+input[type="button"] {
     background: #2b3e50;
     color: #fff;
     border: none;
@@ -114,7 +179,8 @@ button, input[type="button"] {
     transition: background 0.2s;
 }
 
-button:hover, input[type="button"]:hover {
+button:hover,
+input[type="button"]:hover {
     background: #1a2733;
 }
 
