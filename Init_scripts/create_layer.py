@@ -128,7 +128,7 @@ def format_hms(seconds):
 def read_nc_file(conn, nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, batch_size=5000):
     try:
         cursor = conn.cursor()
-        ds = xr.open_dataset("../uploads/" + nc_file)
+        ds = xr.open_dataset("../fileExchanges/uploads/" + nc_file)
         print(ds.info())
         print(ds.dims)
         data = ds[value_dim]

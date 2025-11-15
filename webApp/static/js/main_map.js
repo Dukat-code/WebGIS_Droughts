@@ -1128,7 +1128,7 @@ class DownloadWidget extends Widget {
             return;
         }
         // Default file name if not provided
-        let fileName = '../downloads/';
+        let fileName = '../fileExchange/downloads/';
         fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}.nc`;
         if (!fileName.endsWith('.nc')) fileName += '.nc';
         // Get bounding box coordinates if available
