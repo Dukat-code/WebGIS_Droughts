@@ -35,3 +35,12 @@ Depending on the features of the system that will host GeoServer, proceed to the
 
 3) Installation of WebApplication
 
+Clone the repository of the WebApplication
+
+3.1) IF THE WEB APP IS INSTALLED IN A DIFFERENT MACHINE OF THE DATABASE (if not go directly to 3.2)
+
+3.2) Create the folders:
+fileExchange
+fileExchange/uploads
+fileExchange/downloads
+
