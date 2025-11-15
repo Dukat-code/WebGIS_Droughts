@@ -11,8 +11,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
-uploads/
 eggs/
 .eggs/
 lib/
@@ -56,6 +54,7 @@ coverage.xml
 .pytest_cache/
 pytestdebug.log
 
+
 # Database files
 *.sqlite3
 *.db
@@ -73,6 +72,8 @@ Thumbs.db
 
 # Config files (if you want to ignore local config)
 #config/config.ini
+fileExchanges/uploads/
+fileExchanges/downloads/
 
 # Ignore compiled Cython files
 *.c
