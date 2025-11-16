@@ -13,7 +13,7 @@ class Map {
 
     constructor(cfg, name) {
         // Initialize map
-        console.log("Map config:", cfg);
+        this.localhost = cfg.localhost;
         this.layers = {};
         this.activeDate = null;
         this.map = L.map(name, {
@@ -98,6 +98,7 @@ class Map {
 
         // Download control
         this.setDownloadControl();
+
     }
 
     /**
@@ -291,8 +292,6 @@ class Map {
         fetch(url)
         .then(response => response.json())
         .then(data => {
-            console.log('GeoJSON data loaded:', data);
-            console.log('Layer before adding data:', layer);
             layer.addData(data);
         })
         .catch(error => {
@@ -352,7 +351,7 @@ class Map {
                             btn.onclick = () => {
                                 mapInstance.openModal(
                                     title,
-                                    `http://localhost:5000/clim_station_chart/meteostation_month_data/${lat}/${lon}`
+                                    `${mapInstance.localhost}/clim_station_chart/meteostation_month_data/${lat}/${lon}`
                                 );
                             };
                         }
@@ -418,7 +417,7 @@ class Map {
                     const btn = document.getElementById('modal-open-btn');
                     if (btn) {
                         btn.onclick = () => {
-                            this.openModal(title, `http://localhost:5000/clim_chart/${activeLayer}/${lat}/${lon}`);
+                            this.openModal(title, `${this.localhost}/clim_chart/${activeLayer}/${lat}/${lon}`);
                         };
                     }
                 }, 100);
@@ -704,7 +703,7 @@ class LayerWidget extends Widget {
         .then(data => {
             // Build modal content with the requested fields
             const metadataLink = data?.metadata ? data.metadata : 
-                                `http://localhost:5000/get_metadata/${layerName}`;
+                                `${this.localhost}/get_metadata/${layerName}`;
             const modalContent = `
                 <div>
                     <strong>Code:</strong> ${data.code || ''}<br>

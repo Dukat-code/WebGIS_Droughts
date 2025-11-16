@@ -67,7 +67,7 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer){
     console.log(monthFrom);
     console.log(yearTo);
     console.log(monthTo);
-    fetch(`http://127.0.0.1:5000/get_data_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}`)
+    fetch(`${localhost}/get_data_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}`)
     .then(response => response.json())
     .then(r => {
         console.log(r);

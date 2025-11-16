@@ -231,7 +231,7 @@ def clim_chart(layer, lat, lon):
     conn = get_db_connection()
     time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
-    return render_template('clim_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max, style=rules_json)
+    return render_template('clim_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max, style=rules_json, localhost=base_url)
 
 @app.route('/clim_station_chart/<layer>/<lat>/<lon>')
 def clim_station_chart(layer, lat, lon):
@@ -240,7 +240,7 @@ def clim_station_chart(layer, lat, lon):
     conn = get_db_connection()
     time_bounds = get_station_time_bounds(lat, lon, conn)
     close_db_connection(conn)
-    return render_template('clim_station_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max)
+    return render_template('clim_station_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max, localhost=base_url)
 
 @app.route('/get_metadata/<layer>')
 def get_metadata(layer):
@@ -279,6 +279,8 @@ def main_map():
         layer['time_bounds'] = time_bounds
         layers[layer_name] = layer
     map_config['layers'] = layers
+    map_config['localhost'] = base_url
+    print(map_config)
     return render_template('main_map.html', map_config=map_config)
 
 if __name__ == "__main__":
