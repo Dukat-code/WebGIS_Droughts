@@ -63,7 +63,7 @@ function createElements(lat, lon, layer, year_init, year_end, color_min, color_m
 }
 
 function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer,variable){
-    fetch(`http://127.0.0.1:5000/get_data_station_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}/${variable}`)
+    fetch(`${localhost}/get_data_station_from_lat_lon/${lat}/${lon}/${yearFrom}/${monthFrom}/${yearTo}/${monthTo}/${layer}/${variable}`)
     .then(response => response.json())
     .then(r => {
         var data = [],std = [],avg = [], labels = [];
