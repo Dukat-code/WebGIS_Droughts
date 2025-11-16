@@ -20,17 +20,28 @@ from src.get_layer_info import (
 config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
 config = configparser.ConfigParser()
 config.read(config_path)
+base_url = config['base']['base_url']
+geoserver_url = config['base']['geoserver_url']
+
 def get_key_config(feat):
     if feat not in config:
         return {}
-    return {key: config.get(feat, key) for key in config[feat]}
+    # Replace {base_url} and {geoserver_url} in all config values for this section
+    return {
+        key: config.get(feat, key)
+            .replace('{base_url}', base_url)
+            .replace('{geoserver_url}', geoserver_url)
+        for key in config[feat]
+    }
 
 ############################################################################### 
 # Database connection functions 
 ###############################################################################
 
 def get_db_connection():
-    conn = psycopg2.connect(**dict(config.items('database')))
+    db_config = dict(config.items('database'))
+    db_config = {k: v for k, v in db_config.items() if k in ['host', 'port', 'dbname', 'user', 'password']}
+    conn = psycopg2.connect(**db_config)
     return conn
 
 def close_db_connection(conn):
@@ -214,7 +225,6 @@ def get_product_info(layer):
 def clim_chart(layer, lat, lon):
     style = get_key_config(layer).get('style')
     rules = parse_sld_rules(f"./misc/sld/{style}")
-    print(rules)
     rules_json = json.dumps(rules)
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
@@ -251,8 +261,6 @@ def export_table(table_name):
     if bbox == {}:
         bbox = None
     output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
-    print(f"Exporting table {table_name} from {init_date} to {end_date} with bbox {bbox} to {output_filename}")
-
     conn = get_db_connection()
     result = export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename)
     close_db_connection(conn)
