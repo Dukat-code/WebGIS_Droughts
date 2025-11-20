@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser
+# Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser PUBLIC_IP
 
 FTP_FOLDER="$1"
 FTP_USER="$2"
+PASV_ADDRESS="$3"
 
-if [ -z "$FTP_FOLDER" ] || [ -z "$FTP_USER" ]; then
-    echo "Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser"
+if [ -z "$FTP_FOLDER" ] || [ -z "$FTP_USER" ] || [ -z "$PASV_ADDRESS" ]; then
+    echo "Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser PUBLIC_IP"
     exit 1
 fi
 
@@ -45,9 +46,17 @@ local_root=$FTP_FOLDER
 allow_writeable_chroot=YES
 pasv_min_port=40000
 pasv_max_port=40100
+pasv_address=$PASV_ADDRESS
 EOF
+
+# Open FTP and passive ports in firewall
+if command -v ufw &>/dev/null; then
+    ufw allow 21/tcp
+    ufw allow 40000:40100/tcp
+    ufw reload
+fi
 
 # Restart vsftpd
 systemctl restart vsftpd
 
-echo "FTP setup complete. FTP user '$FTP_USER' can access $FTP_FOLDER."
+echo "FTP setup complete. FTP user '$FTP_USER' can access $FTP_FOLDER. Passive mode IP: $PASV_ADDRESS"
