@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Usage: sudo bash setup_ftp.sh /path/to/ftp_folder ftpuser
+# Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser
 
 FTP_FOLDER="$1"
 FTP_USER="$2"
 
 if [ -z "$FTP_FOLDER" ] || [ -z "$FTP_USER" ]; then
-    echo "Usage: sudo bash setup_ftp.sh /path/to/ftp_folder ftpuser"
+    echo "Usage: sudo bash create_ftp_server.sh /path/to/ftp_folder ftpuser"
     exit 1
 fi
 
@@ -16,16 +16,19 @@ if ! dpkg -l | grep -qw vsftpd; then
     apt install -y vsftpd
 fi
 
-# Create FTP user if not exists
+# Create FTP user if not exists, and set home directory to FTP_FOLDER
 if ! id "$FTP_USER" &>/dev/null; then
-    adduser --disabled-password --gecos "" "$FTP_USER"
+    adduser --disabled-password --gecos "" --home "$FTP_FOLDER" "$FTP_USER"
     echo "Set password for $FTP_USER:"
     passwd "$FTP_USER"
+else
+    # Change home directory if needed
+    usermod -d "$FTP_FOLDER" "$FTP_USER"
 fi
 
-# Set folder ownership and permissions for all users
+# Set folder ownership and permissions for FTP user
 chown "$FTP_USER":"$FTP_USER" "$FTP_FOLDER"
-chmod 777 "$FTP_FOLDER"
+chmod 755 "$FTP_FOLDER"
 
 # Backup vsftpd.conf
 cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
@@ -47,4 +50,4 @@ EOF
 # Restart vsftpd
 systemctl restart vsftpd
 
-echo "FTP setup complete. Any user can access $FTP_FOLDER. Connect with user: $FTP_USER"
+echo "FTP setup complete. FTP user '$FTP_USER' can access $FTP_FOLDER."
