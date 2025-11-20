@@ -129,6 +129,29 @@ def admin_logout():
     session.pop('admin_username', None)
     return redirect(url_for('admin_login'))
 
+@app.route('/admin/config', methods=['GET', 'POST'])
+@admin_required
+def admin_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
+    config_parser = configparser.ConfigParser()
+    config_parser.read(config_path)
+
+    if request.method == 'POST':
+        # Update config values from form
+        for section in config_parser.sections():
+            for key in config_parser[section]:
+                form_key = f"{section}__{key}"
+                if form_key in request.form:
+                    config_parser[section][key] = request.form[form_key]
+        # Save changes
+        with open(config_path, 'w') as configfile:
+            config_parser.write(configfile)
+        message = "Configuration updated successfully."
+    else:
+        message = None
+
+    return render_template('admin_config.html', config=config_parser, message=message)
+
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():

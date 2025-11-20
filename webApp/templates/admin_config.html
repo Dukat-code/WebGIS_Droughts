@@ -1,0 +1,23 @@
+{% extends "admin_dashboard.html" %}
+{% block content %}
+<h2>Edit Configuration</h2>
+{% if message %}
+    <div style="color: green;">{{ message }}</div>
+{% endif %}
+<form method="post">
+    {% for section in config.sections() %}
+        <h3>{{ section }}</h3>
+        <table>
+        {% for key, value in config[section].items() %}
+            <tr>
+                <td>{{ key }}</td>
+                <td>
+                    <input type="text" name="{{ section }}__{{ key }}" value="{{ value }}">
+                </td>
+            </tr>
+        {% endfor %}
+        </table>
+    {% endfor %}
+    <button type="submit">Save</button>
+</form>
+{% endblock %}
