@@ -1,23 +1,15 @@
 {% extends "admin_dashboard.html" %}
 {% block content %}
-<h2>Edit Configuration</h2>
+<h2>Edit Configuration (Raw)</h2>
 {% if message %}
     <div style="color: green;">{{ message }}</div>
 {% endif %}
 <form method="post">
-    {% for section in config.sections() %}
-        <h3>{{ section }}</h3>
-        <table>
-        {% for key, value in config[section].items() %}
-            <tr>
-                <td>{{ key }}</td>
-                <td>
-                    <input type="text" name="{{ section }}__{{ key }}" value="{{ value }}">
-                </td>
-            </tr>
-        {% endfor %}
-        </table>
-    {% endfor %}
+    <textarea name="config_raw" rows="30" style="width:100%;">{{ config_raw }}</textarea>
+    <br>
     <button type="submit">Save</button>
+    <a href="{{ url_for('admin_dashboard') }}" style="margin-left:10px;">
+        <button type="button">Cancel</button>
+    </a>
 </form>
 {% endblock %}

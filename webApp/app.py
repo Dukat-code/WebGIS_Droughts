@@ -12,21 +12,24 @@ from src.get_layer_info import (
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
     get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules
 )
+from src.import_meteo_csv import import_meteo_csv   
 
 ##############################################################################
 # CONFIGURATION
 ##############################################################################
 
-config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
-config = configparser.ConfigParser()
-config.read(config_path)
-base_url = config['base']['base_url']
-geoserver_url = config['base']['geoserver_url']
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    return config
 
 def get_key_config(feat):
+    config = load_config()
     if feat not in config:
         return {}
-    # Replace {base_url} and {geoserver_url} in all config values for this section
+    base_url = config['base'].get('base_url', '')
+    geoserver_url = config['base'].get('geoserver_url', '')
     return {
         key: config.get(feat, key)
             .replace('{base_url}', base_url)
@@ -39,6 +42,7 @@ def get_key_config(feat):
 ###############################################################################
 
 def get_db_connection():
+    config = load_config()
     db_config = dict(config.items('database'))
     db_config = {k: v for k, v in db_config.items() if k in ['host', 'port', 'dbname', 'user', 'password']}
     conn = psycopg2.connect(**db_config)
@@ -127,30 +131,25 @@ def admin_login():
 def admin_logout():
     session.pop('admin_logged_in', None)
     session.pop('admin_username', None)
-    return redirect(url_for('admin_login'))
+    return redirect(url_for('main_map'))
 
 @app.route('/admin/config', methods=['GET', 'POST'])
 @admin_required
 def admin_config():
     config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
-    config_parser = configparser.ConfigParser()
-    config_parser.read(config_path)
+    message = None
 
     if request.method == 'POST':
-        # Update config values from form
-        for section in config_parser.sections():
-            for key in config_parser[section]:
-                form_key = f"{section}__{key}"
-                if form_key in request.form:
-                    config_parser[section][key] = request.form[form_key]
-        # Save changes
-        with open(config_path, 'w') as configfile:
-            config_parser.write(configfile)
-        message = "Configuration updated successfully."
-    else:
-        message = None
+        config_raw = request.form.get('config_raw')
+        if config_raw:
+            with open(config_path, 'w') as f:
+                f.write(config_raw)
+            message = "Configuration updated successfully."
 
-    return render_template('admin_config.html', config=config_parser, message=message)
+    with open(config_path, 'r') as f:
+        config_raw = f.read()
+
+    return render_template('admin_config.html', config_raw=config_raw, message=message)
 
 @app.route('/admin/dashboard')
 @admin_required
@@ -181,10 +180,123 @@ def admin_users():
 def admin_layer_creation():
     return render_template('admin_layer_creation.html')
 
-@app.route('/admin/add_station_data')
+@app.route('/admin/add_station_data', methods=['GET', 'POST'])
 @admin_required
 def admin_add_station_data():
-    return render_template('admin_add_station_data.html')
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    csv_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.csv')]
+    message = None
+
+    if request.method == 'POST':
+        csv_filename = request.form.get('csv_filename')
+        if not csv_filename:
+            message = "No CSV file selected."
+        else:
+            # Call the import service directly
+            from src.import_meteo_csv import import_meteo_csv
+            config_path = os.path.join(project_root, 'config', 'config.ini')
+            sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+            csv_file = os.path.join(upload_folder, csv_filename)
+            try:
+                import_meteo_csv(csv_file, config_path=config_path, sql_path=sql_path)
+                message = f"Imported '{csv_filename}' successfully."
+            except Exception as e:
+                message = f"Error importing: {e}"
+
+    return render_template('admin_add_station_data.html', csv_files=csv_files, message=message)
+
+@app.route('/admin/upload', methods=['GET', 'POST'])
+@admin_required
+def admin_upload():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    print("Uploading to:", upload_folder)  # For debugging
+    message = None
+
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            message = "No file part"
+        else:
+            file = request.files['file']
+            if file.filename == '':
+                message = "No selected file"
+            else:
+                filepath = os.path.join(upload_folder, file.filename)
+                file.save(filepath)
+                message = f"File '{file.filename}' uploaded successfully."
+
+    return render_template('admin_upload.html', message=message)
+
+@app.route('/admin/download', methods=['GET', 'POST'])
+@admin_required
+def admin_download():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    download_folder = os.path.join(project_root, 'fileExchange', 'downloads')
+    message = None
+    files = [f for f in os.listdir(download_folder) if os.path.isfile(os.path.join(download_folder, f))]
+
+    if request.method == 'POST':
+        selected_file = request.form.get('selected_file')
+        if selected_file and selected_file in files:
+            filepath = os.path.join(download_folder, selected_file)
+            try:
+                with open(filepath, 'rb') as f:
+                    response = Response(f.read(), mimetype='application/octet-stream')
+                    response.headers.set('Content-Disposition', 'attachment', filename=selected_file)
+                os.remove(filepath)
+                return response
+            except Exception as e:
+                message = f"Error downloading file: {e}"
+        else:
+            message = "No file selected or file does not exist."
+
+    return render_template('admin_download.html', files=files, message=message)
+
+@app.route('/admin/import_meteo_stations', methods=['POST'])
+@admin_required
+def import_meteo_stations():
+    csv_filename = request.form.get('csv_filename')
+    if not csv_filename:
+        return jsonify({"error": "No CSV filename provided."}), 400
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    csv_file = os.path.join(project_root, 'fileExchange', 'uploads', csv_filename)
+    config_path = os.path.join(project_root, 'config', 'config.ini')
+    sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+
+    if not os.path.isfile(csv_file):
+        return jsonify({"error": f"CSV file '{csv_filename}' not found."}), 404
+
+    # Try to delete existing data, ignore errors if table doesn't exist or is empty
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM meteostation_month_data;")
+            conn.commit()
+        except Exception as e:
+            # Ignore error if table does not exist or is empty
+            conn.rollback()
+        cur.close()
+        close_db_connection(conn)
+    except Exception as e:
+        # Ignore connection errors for deletion step
+        pass
+
+    # Import new data
+    try:
+        import_meteo_csv(csv_file, config_path=config_path, sql_path=sql_path)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Delete the CSV file after import
+    try:
+        os.remove(csv_file)
+    except Exception as e:
+        return jsonify({"error": f"Imported but could not delete CSV file: {e}"}), 500
+
+    return jsonify({"success": True, "message": f"Imported '{csv_filename}' successfully and deleted the file."})
 
 ###############################################################################
 # Existing routes
@@ -251,6 +363,8 @@ def clim_chart(layer, lat, lon):
     rules_json = json.dumps(rules)
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
+    config = load_config()
+    base_url = config['base'].get('base_url', '')
     conn = get_db_connection()
     time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
@@ -260,6 +374,8 @@ def clim_chart(layer, lat, lon):
 def clim_station_chart(layer, lat, lon):
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
+    config = load_config()
+    base_url = config['base'].get('base_url', '')
     conn = get_db_connection()
     time_bounds = get_station_time_bounds(lat, lon, conn)
     close_db_connection(conn)
@@ -301,6 +417,8 @@ def main_map():
         close_db_connection(conn)
         layer['time_bounds'] = time_bounds
         layers[layer_name] = layer
+    config = load_config()
+    base_url = config['base'].get('base_url', '')
     map_config['layers'] = layers
     map_config['localhost'] = base_url
     print(map_config)
