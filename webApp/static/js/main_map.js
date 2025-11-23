@@ -703,7 +703,7 @@ class LayerWidget extends Widget {
         .then(data => {
             // Build modal content with the requested fields
             const metadataLink = data?.metadata ? data.metadata : 
-                                `${this.localhost}/get_metadata/${layerName}`;
+                                `${this.parent.localhost}/get_metadata/${layerName}`;
             const modalContent = `
                 <div>
                     <strong>Code:</strong> ${data.code || ''}<br>

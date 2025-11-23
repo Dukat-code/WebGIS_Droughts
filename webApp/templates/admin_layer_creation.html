@@ -1,9 +1,72 @@
-<!DOCTYPE html>
-<html>
-<head><title>Layer Creation</title></head>
-<body>
-    <h2>Layer Creation (Admin)</h2>
-    <p>Content to be developed.</p>
-    <a href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
-</body>
-</html>
+{% extends "admin_dashboard.html" %}
+{% block content %}
+<h2>Layer Creation (Admin)</h2>
+<div id="progress" style="margin-bottom:20px;color:blue;"></div>
+<form id="layerForm">
+    <label for="nc_filename">Select NetCDF file:</label>
+    <select name="nc_filename" id="nc_filename" required>
+        {% for file in nc_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br><br>
+    <label for="layer_name">Layer Name:</label>
+    <input type="text" name="layer_name" id="layer_name" required>
+    <br><br>
+    <label for="value_dim">Value Dimension:</label>
+    <input type="text" name="value_dim" id="value_dim" required>
+    <br><br>
+    <label for="time_dim">Time Dimension:</label>
+    <input type="text" name="time_dim" id="time_dim" required>
+    <br><br>
+    <label for="lon_dim">Longitude Dimension:</label>
+    <input type="text" name="lon_dim" id="lon_dim" required>
+    <br><br>
+    <label for="lat_dim">Latitude Dimension:</label>
+    <input type="text" name="lat_dim" id="lat_dim" required>
+    <br><br>
+    <label for="product_json">Product Info (.json):</label>
+    <select name="product_json" id="product_json">
+        <option value="">--None--</option>
+        {% for file in json_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br><br>
+    <label for="layer_xml">Layer Metadata (.xml):</label>
+    <select name="layer_xml" id="layer_xml">
+        <option value="">--None--</option>
+        {% for file in xml_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br><br>
+    <button type="submit">Create Layer</button>
+</form>
+<a href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
+<script>
+document.getElementById('layerForm').onsubmit = function(e) {
+    e.preventDefault();
+    document.getElementById('progress').innerText = "Starting layer creation...";
+    const formData = new FormData(e.target);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "{{ url_for('create_layer_stream') }}", true);
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    let lastIndex = 0;
+    xhr.onprogress = function() {
+        const newText = xhr.responseText.substring(lastIndex);
+        lastIndex = xhr.responseText.length;
+        const lines = newText.split('\n');
+        for (let line of lines) {
+            if (line.startsWith('data: ')) {
+                document.getElementById('progress').innerText = line.substring(6);
+            }
+        }
+    };
+    xhr.onload = function() {
+        document.getElementById('progress').innerText += "\nDone.";
+    };
+    xhr.send(formData);
+};
+</script>
+{% endblock %}

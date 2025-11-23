@@ -1,4 +1,4 @@
-from flask import Flask, json, jsonify, render_template, Response, request, redirect, url_for, session
+from flask import Flask, json, jsonify, render_template, Response, request, redirect, url_for, session, stream_with_context
 from flask_cors import CORS
 from waitress import serve
 import configparser
@@ -12,7 +12,8 @@ from src.get_layer_info import (
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
     get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules
 )
-from src.import_meteo_csv import import_meteo_csv   
+from src.import_meteo_csv import import_meteo_csv_stream   
+from src.create_layer import read_nc_file_stream
 
 ##############################################################################
 # CONFIGURATION
@@ -115,9 +116,23 @@ def admin_required(f):
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     error = None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM admin_users;")
+    user_count = cur.fetchone()[0]
+    cur.close()
+    close_db_connection(conn)
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+
+        # If no users exist, allow default admin login
+        if user_count == 0 and username == "admin" and password == "admin":
+            session['admin_logged_in'] = True
+            session['admin_username'] = username
+            return redirect(url_for('admin_dashboard'))
+
         user = get_admin_user(username)
         if user and check_password_hash(user[2], password):
             session['admin_logged_in'] = True
@@ -139,15 +154,47 @@ def admin_config():
     config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.ini')
     message = None
 
+    # Load full config for preservation
+    config = configparser.ConfigParser()
+    config.read(config_path)
+
+    # Prepare filtered config for display
+    filtered_config = configparser.ConfigParser()
+    for section in config.sections():
+        if section == 'database':
+            continue
+        filtered_config.add_section(section)
+        for key, value in config.items(section):
+            if section == 'base' and key == 'base_url':
+                continue
+            filtered_config.set(section, key, value)
+
+    # Handle POST (save filtered config only)
     if request.method == 'POST':
         config_raw = request.form.get('config_raw')
         if config_raw:
+            # Parse edited config, update only allowed sections/keys
+            edited_config = configparser.ConfigParser()
+            edited_config.read_string(config_raw)
+            for section in edited_config.sections():
+                if section == 'database':
+                    continue
+                for key, value in edited_config.items(section):
+                    if section == 'base' and key == 'base_url':
+                        continue
+                    if not config.has_section(section):
+                        config.add_section(section)
+                    config.set(section, key, value)
+            # Save the full config (preserving base/base_url and database)
             with open(config_path, 'w') as f:
-                f.write(config_raw)
+                config.write(f)
             message = "Configuration updated successfully."
 
-    with open(config_path, 'r') as f:
-        config_raw = f.read()
+    # Prepare config text for textarea
+    from io import StringIO
+    output = StringIO()
+    filtered_config.write(output)
+    config_raw = output.getvalue()
 
     return render_template('admin_config.html', config_raw=config_raw, message=message)
 
@@ -175,10 +222,7 @@ def admin_users():
             message = f"Password for {username} changed."
     return render_template('admin_users.html', message=message)
 
-@app.route('/admin/layer_creation')
-@admin_required
-def admin_layer_creation():
-    return render_template('admin_layer_creation.html')
+
 
 @app.route('/admin/add_station_data', methods=['GET', 'POST'])
 @admin_required
@@ -253,12 +297,15 @@ def admin_download():
 
     return render_template('admin_download.html', files=files, message=message)
 
-@app.route('/admin/import_meteo_stations', methods=['POST'])
+@app.route('/admin/import_meteo_stations_stream', methods=['POST'])
 @admin_required
-def import_meteo_stations():
+def import_meteo_stations_stream():
+    # Access request.form here, before defining generate()
     csv_filename = request.form.get('csv_filename')
     if not csv_filename:
-        return jsonify({"error": "No CSV filename provided."}), 400
+        def error_gen():
+            yield "data: No CSV filename provided.\n\n"
+        return Response(stream_with_context(error_gen()), mimetype='text/event-stream')
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     csv_file = os.path.join(project_root, 'fileExchange', 'uploads', csv_filename)
@@ -266,37 +313,114 @@ def import_meteo_stations():
     sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
 
     if not os.path.isfile(csv_file):
-        return jsonify({"error": f"CSV file '{csv_filename}' not found."}), 404
+        def error_gen():
+            yield f"data: CSV file '{csv_filename}' not found.\n\n"
+        return Response(stream_with_context(error_gen()), mimetype='text/event-stream')
 
-    # Try to delete existing data, ignore errors if table doesn't exist or is empty
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    def generate():
+        # ... rest of your streaming logic ...
+        # (no access to request.form here!)
         try:
-            cur.execute("DELETE FROM meteostation_month_data;")
-            conn.commit()
+            conn = get_db_connection()
+            cur = conn.cursor()
+            try:
+                cur.execute("DELETE FROM meteostation_month_data;")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            cur.close()
+            close_db_connection(conn)
+            yield "data: Previous data deleted (if any).\n\n"
+        except Exception:
+            yield "data: Could not delete previous data (ignored).\n\n"
+
+        try:
+            for message in import_meteo_csv_stream(csv_file, config_path=config_path, sql_path=sql_path):
+                yield f"data: {message}\n\n"
         except Exception as e:
-            # Ignore error if table does not exist or is empty
-            conn.rollback()
-        cur.close()
-        close_db_connection(conn)
-    except Exception as e:
-        # Ignore connection errors for deletion step
-        pass
+            yield f"data: Error importing: {e}\n\n"
 
-    # Import new data
-    try:
-        import_meteo_csv(csv_file, config_path=config_path, sql_path=sql_path)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        try:
+            os.remove(csv_file)
+            yield f"data: Imported '{csv_filename}' successfully and deleted the file.\n\n"
+        except Exception as e:
+            yield f"data: Imported but could not delete CSV file: {e}\n\n"
 
-    # Delete the CSV file after import
-    try:
-        os.remove(csv_file)
-    except Exception as e:
-        return jsonify({"error": f"Imported but could not delete CSV file: {e}"}), 500
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
-    return jsonify({"success": True, "message": f"Imported '{csv_filename}' successfully and deleted the file."})
+@app.route('/admin/layer_creation', methods=['GET', 'POST'])
+@admin_required
+def admin_layer_creation():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    nc_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.nc')]
+    json_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.json')]
+    xml_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.xml')]
+    message = None
+
+    return render_template(
+        'admin_layer_creation.html',
+        nc_files=nc_files,
+        json_files=json_files,
+        xml_files=xml_files,
+        message=message
+    )
+
+@app.route('/admin/create_layer_stream', methods=['POST'])
+@admin_required
+def create_layer_stream():
+    nc_filename = request.form.get('nc_filename')
+    layer_name = request.form.get('layer_name')
+    value_dim = request.form.get('value_dim')
+    time_dim = request.form.get('time_dim')
+    lon_dim = request.form.get('lon_dim')
+    lat_dim = request.form.get('lat_dim')
+    product_json = request.form.get('product_json')
+    layer_xml = request.form.get('layer_xml')
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    metadata_folder = os.path.join(project_root, 'metadata')
+    nc_file = os.path.join(upload_folder, nc_filename)
+    json_file = os.path.join(upload_folder, product_json) if product_json else None
+    xml_file = os.path.join(upload_folder, layer_xml) if layer_xml else None
+    config_path = os.path.join(project_root, 'config', 'config.ini')
+
+    def generate():
+        for message in read_nc_file_stream(
+            nc_file,
+            layer_name,
+            value_dim,
+            time_dim,
+            lon_dim,
+            lat_dim,
+            config_path=config_path
+        ):
+            yield f"data: {message}\n\n"
+        # After streaming is done, move the .json and .xml files
+        try:
+            os.remove(nc_file)
+            yield f"data: Layer created and file '{nc_filename}' deleted.\n\n"
+        except Exception as e:
+            yield f"data: Layer created but could not delete file: {e}\n\n"
+        # Move product info JSON
+        if json_file:
+            try:
+                target_json = os.path.join(metadata_folder, f"{layer_name}.json")
+                os.rename(json_file, target_json)
+                yield f"data: Product info file moved to '{target_json}'.\n\n"
+            except Exception as e:
+                yield f"data: Could not move product info file: {e}\n\n"
+        # Move layer metadata XML
+        if xml_file:
+            try:
+                target_xml = os.path.join(metadata_folder, f"{layer_name}.xml")
+                os.rename(xml_file, target_xml)
+                yield f"data: Metadata file moved to '{target_xml}'.\n\n"
+            except Exception as e:
+                yield f"data: Could not move metadata file: {e}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 ###############################################################################
 # Existing routes
@@ -347,13 +471,12 @@ def get_data_from_station(lat, lon, date):
 
 @app.route('/get_product_info/<layer>')
 def get_product_info(layer):
-    products_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'products.json')
+    metadata_path = os.path.join(os.path.dirname(__file__), '..', 'metadata', f"{layer}.json")
     try:
-        with open(products_path, 'r') as f:
-            products = json.load(f)
+        with open(metadata_path, 'r') as f:
+            product_info = json.load(f)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    product_info = products.get(layer, {})
     return jsonify(product_info)
 
 @app.route('/clim_chart/<layer>/<lat>/<lon>')

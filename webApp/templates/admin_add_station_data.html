@@ -1,10 +1,8 @@
 {% extends "admin_dashboard.html" %}
 {% block content %}
 <h2>Add Station Data (Admin)</h2>
-{% if message %}
-    <div style="color: green;">{{ message }}</div>
-{% endif %}
-<form method="post" action="{{ url_for('import_meteo_stations') }}">
+<div id="progress" style="margin-bottom:20px;color:blue;"></div>
+<form id="importForm">
     <label for="csv_filename">Select CSV file:</label>
     <select name="csv_filename" id="csv_filename" required>
         {% for file in csv_files %}
@@ -13,5 +11,30 @@
     </select>
     <button type="submit">Import</button>
 </form>
-<a href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
+
+<script>
+document.getElementById('importForm').onsubmit = function(e) {
+    e.preventDefault();
+    document.getElementById('progress').innerText = "Starting import...";
+    const formData = new FormData(e.target);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "{{ url_for('import_meteo_stations_stream') }}", true);
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    let lastIndex = 0;
+    xhr.onprogress = function() {
+        const newText = xhr.responseText.substring(lastIndex);
+        lastIndex = xhr.responseText.length;
+        const lines = newText.split('\n');
+        for (let line of lines) {
+            if (line.startsWith('data: ')) {
+                document.getElementById('progress').innerText = line.substring(6);
+            }
+        }
+    };
+    xhr.onload = function() {
+        document.getElementById('progress').innerText += "\nDone.";
+    };
+    xhr.send(formData);
+};
+</script>
 {% endblock %}
