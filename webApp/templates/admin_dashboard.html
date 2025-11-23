@@ -1,13 +1,33 @@
 <!DOCTYPE html>
 <html>
-<head><title>Admin Dashboard</title></head>
+<head>
+    <title>Admin Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f6fa; }
+        h2 { color: #2b3e50; }
+        .admin-menu { margin-bottom: 30px; }
+        .admin-menu ul { list-style: none; padding: 0; }
+        .admin-menu li { display: inline-block; margin-right: 20px; }
+        .admin-menu a { color: #2b3e50; text-decoration: none; font-weight: bold; }
+        .admin-menu a:hover { text-decoration: underline; }
+        .content { background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(44,62,80,0.08); }
+    </style>
+</head>
 <body>
-    <h2>Welcome, {{ username }}</h2>
-    <ul>
-        <li><a href="{{ url_for('admin_users') }}">Manage Users</a></li>
-        <li><a href="{{ url_for('admin_layer_creation') }}">Layer Creation</a></li>
-        <li><a href="{{ url_for('admin_add_station_data') }}">Add Station Data</a></li>
-        <li><a href="{{ url_for('admin_logout') }}">Logout</a></li>
-    </ul>
+    <h1>Welcome,</h1>
+    <div class="admin-menu">
+        <ul>
+            <li><a href="{{ url_for('admin_users') }}">Manage Users</a></li>
+            <li><a href="{{ url_for('admin_layer_creation') }}">Layer Creation</a></li>
+            <li><a href="{{ url_for('admin_add_station_data') }}">Add Station Data</a></li>
+            <li><a href="{{ url_for('admin_upload') }}">Upload File</a></li>
+            <li><a href="{{ url_for('admin_download') }}">Download File</a></li>
+            <li><a href="{{ url_for('admin_config') }}">Edit Configuration</a></li>
+            <li><a href="{{ url_for('admin_logout') }}">Logout</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
 </body>
 </html>

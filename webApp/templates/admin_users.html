@@ -1,9 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head><title>Manage Admin Users</title></head>
-<body>
+{% extends "admin_dashboard.html" %}
+{% block content %}
     <h2>Manage Admin Users</h2>
-    {% if message %}<p>{{ message }}</p>{% endif %}
+    {% if message %}
+        <div style="color: green;">{{ message }}</div>
+    {% endif %}
     <form method="post">
         <label>Username: <input type="text" name="username"></label><br>
         <label>Password: <input type="password" name="password"></label><br>
@@ -11,6 +11,5 @@
         <button type="submit" name="action" value="delete">Delete User</button>
         <button type="submit" name="action" value="change_password">Change Password</button>
     </form>
-    <a href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
-</body>
-</html>
+    <br>
+{% endblock %}

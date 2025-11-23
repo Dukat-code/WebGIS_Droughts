@@ -45,5 +45,6 @@ fileExchange/uploads
 fileExchange/downloads
 
 3.3) Create the file exchange service for the folder fileExchange 
-(we provide the script create_ftp_server.sh as an example of creation of ftp service)
+(we provide the script create_ftp_server.sh as an example of creation of ftp service, but it still needs to be configured depending
+on the features of the system, in order to get te ports open etc.)
 

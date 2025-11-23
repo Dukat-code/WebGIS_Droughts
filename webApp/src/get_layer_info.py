@@ -14,16 +14,24 @@ import configparser
 ################################################################
 # CONFIGURATION
 ################################################################
-config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.ini')
-config = configparser.ConfigParser()
-config.read(config_path)
-base_url = config['base']['base_url']
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.ini')
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    return config
 
 def get_key_config(feat):
+    config = load_config()
     if feat not in config:
         return {}
-    # Replace {base_url} in all config values for this section
-    return {key: config.get(feat, key).replace('{base_url}', base_url) for key in config[feat]}
+    base_url = config['base'].get('base_url', '')
+    geoserver_url = config['base'].get('geoserver_url', '')
+    return {
+        key: config.get(feat, key)
+            .replace('{base_url}', base_url)
+            .replace('{geoserver_url}', geoserver_url)
+        for key in config[feat]
+    }
 
 ################################################################
 # Functions to get layer info from the database
