@@ -10,7 +10,8 @@ from functools import wraps
 from src.get_layer_info import (
     get_feature_data, get_layer_time_bounds, get_meteo_stations_geojson, get_meteostation_month_data,
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
-    get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules
+    get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules,
+    get_feature_data_from_lat_lon_dekad
 )
 from src.import_meteo_csv import import_meteo_csv_stream   
 from src.create_layer import read_nc_file_stream
@@ -449,6 +450,13 @@ def get_data_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, layer):
     close_db_connection(conn)
     return jsonify(feat_info)
 
+@app.route('/get_data_from_latlon_dekad/<lat>/<lon>/<dateFrom>/<dateTo>/<layer>')
+def get_data_from_latlon_dekad(lat, lon, dateFrom, dateTo, layer):
+    conn = get_db_connection()
+    feat_info = get_feature_data_from_lat_lon_dekad(layer, float(lat), float(lon), dateFrom, dateTo, conn)
+    close_db_connection(conn)
+    return jsonify(feat_info)
+
 @app.route('/get_data_station_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<layer>/<variable>')
 def get_data_station_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, layer, variable):
     conn = get_db_connection()
@@ -497,6 +505,7 @@ def get_product_info(layer):
 
 @app.route('/clim_chart/<layer>/<lat>/<lon>')
 def clim_chart(layer, lat, lon):
+    print("en clim_chart")
     style = get_key_config(layer).get('style')
     rules = parse_sld_rules(f"./misc/sld/{style}")
     rules_json = json.dumps(rules)
@@ -507,7 +516,37 @@ def clim_chart(layer, lat, lon):
     conn = get_db_connection()
     time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
-    return render_template('clim_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max, style=rules_json, localhost=base_url)
+    date_format = get_key_config(layer).get('date_format')
+    print("Date format:", date_format)
+    if not time_bounds or not time_bounds.get('min_date') or not time_bounds.get('max_date'):
+        # Handle missing data gracefully
+        return render_template(
+            'clim_chart.html',
+            lat=lat,
+            lon=lon,
+            layer=layer,
+            min_date='',
+            max_date='',
+            color_min=color_min,
+            color_max=color_max,
+            style=rules_json,
+            localhost=base_url,
+            date_format=date_format,
+            error="No data available for this location/layer."
+        )
+    return render_template(
+        'clim_chart.html',
+        lat=lat,
+        lon=lon,
+        layer=layer,
+        min_date=time_bounds['min_date'],
+        max_date=time_bounds['max_date'],
+        color_min=color_min,
+        color_max=color_max,
+        style=rules_json,
+        localhost=base_url,
+        date_format=date_format
+    )
 
 @app.route('/clim_station_chart/<layer>/<lat>/<lon>')
 def clim_station_chart(layer, lat, lon):
