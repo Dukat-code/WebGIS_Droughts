@@ -14,6 +14,7 @@ from src.get_layer_info import (
 )
 from src.import_meteo_csv import import_meteo_csv_stream   
 from src.create_layer import read_nc_file_stream
+from src.seeding import seed_layer_tiles
 
 ##############################################################################
 # CONFIGURATION
@@ -161,7 +162,7 @@ def admin_config():
     # Prepare filtered config for display
     filtered_config = configparser.ConfigParser()
     for section in config.sections():
-        if section == 'database':
+        if section == 'database' or section == 'geoserver':
             continue
         filtered_config.add_section(section)
         for key, value in config.items(section):
@@ -177,7 +178,7 @@ def admin_config():
             edited_config = configparser.ConfigParser()
             edited_config.read_string(config_raw)
             for section in edited_config.sections():
-                if section == 'database':
+                if section == 'database' or section == 'geoserver':
                     continue
                 for key, value in edited_config.items(section):
                     if section == 'base' and key == 'base_url':
@@ -422,6 +423,21 @@ def create_layer_stream():
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
+@app.route('/admin/seed_layer', methods=['GET', 'POST'])
+@admin_required
+def admin_seed_layer():
+    message = None
+    if request.method == 'POST':
+        layer = request.form.get('layer')
+        zoom_start = int(request.form.get('zoom_start', 3))
+        zoom_stop = int(request.form.get('zoom_stop', 8))
+        try:
+            seed_layer_tiles(layer, zoom_start, zoom_stop)
+            message = f"Seeding started for layer '{layer}' (zoom {zoom_start}-{zoom_stop})."
+        except Exception as e:
+            message = f"Error: {e}"
+    return render_template('admin_seed_layer.html', message=message)
+
 ###############################################################################
 # Existing routes
 ###############################################################################
@@ -524,9 +540,14 @@ def export_table(table_name):
         bbox = None
     output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
     conn = get_db_connection()
-    result = export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename)
-    close_db_connection(conn)
-    return jsonify(result)
+
+    def generate():
+        # Modify export_table_to_netcdf to yield messages
+        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
+            yield f"data: {message}\n\n"
+        close_db_connection(conn)
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/')
 def main_map():

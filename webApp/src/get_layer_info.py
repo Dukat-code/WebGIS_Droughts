@@ -375,9 +375,18 @@ def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_
     centroid_lon = min_lon + delta_x * resolution
     return centroid_lat, centroid_lon
 
+def format_hms(seconds):
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        return f"{h:02}:{m:02}:{s:02}"
+
 def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, end_date, bbox, output_filename, chunksize=100000):
-    import gc
-    print("Exporting table {} to NetCDF...".format(table_name))
+    
+    yield "Starting export..."
+
+    # Get bounds
     if bbox:
         query = f"""
             SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow)
@@ -389,13 +398,16 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             cursor.execute(query, params)
             result = cursor.fetchone()
             if not result:
-                return {"error": "No data found in the table."}
+                yield "No data found in the table."
+                return
             min_xcol, max_xcol, min_yrow, max_yrow = result
     else:
         query = f"SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow) FROM {table_name};"
         with conn.cursor() as cursor:
             cursor.execute(query)
             min_xcol, max_xcol, min_yrow, max_yrow = cursor.fetchone()
+
+    # Get reference point for centroid calculation
     query = f"""
         SELECT xcol, yrow, ST_AsText(ST_Centroid(cell)) AS centroid
         FROM {table_name}
@@ -406,10 +418,13 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         cursor.execute(query, (min_xcol, min_yrow))
         result = cursor.fetchone()
         if not result:
-            return {"error": "No data found in the table."}
+            yield "No data found in the table."
+            return
         _, _, centroid_wkt = result
         coords = centroid_wkt.replace('POINT(', '').replace(')', '').split()
         min_lon, max_lat = float(coords[0]), float(coords[1])
+
+    # Prepare main query
     query = f"""
         SELECT t.xcol, t.yrow, t.date, t.value
         FROM {table_name} t
@@ -423,22 +438,21 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             AND t.yrow BETWEEN %s AND %s
         """
         params.extend([min_xcol, max_xcol, min_yrow, max_yrow])
+
+    # Count total rows
     count_query = f"SELECT COUNT(*) FROM ({query}) AS subq"
     with conn.cursor() as cursor:
         cursor.execute(count_query, params)
         total_rows = cursor.fetchone()[0]
     if total_rows == 0:
-        return {"error": "No data found for the given parameters."}
-    def format_hms(seconds):
-        seconds = int(seconds)
-        h = seconds // 3600
-        m = (seconds % 3600) // 60
-        s = seconds % 60
-        return f"{h:02}:{m:02}:{s:02}"
+        yield "No data found for the given parameters."
+        return
+
     all_dfs = []
     processed_rows = 0
     last_percent = -1.0
     start_time = time.time()
+
     try:
         for i, df in enumerate(pd.read_sql(query, conn, params=params, chunksize=chunksize)):
             if df.empty:
@@ -459,13 +473,14 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             else:
                 remaining = 0
             if percent - last_percent >= 0.1 or processed_rows == total_rows:
-                print(f"Processed {processed_rows}/{total_rows} rows... ({percent:.1f}%) "
-                      f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
+                yield (f"Processed {processed_rows}/{total_rows} rows... ({percent:.1f}%) "
+                       f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
                 last_percent = percent
             del df
             gc.collect()
         if not all_dfs:
-            return {"error": "No data found for the given parameters."}
+            yield "No data found for the given parameters."
+            return
         big_df = pd.concat(all_dfs)
         del all_dfs
         gc.collect()
@@ -475,11 +490,9 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         ds.to_netcdf(output_filename)
         del ds, big_df
         gc.collect()
-        print("Export completed successfully.")
-        return {"success": True, "file": output_filename}
+        yield f"Export completed successfully. File: {output_filename}"
     except Exception as e:
-        print(f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}")
-        return {"error": str(e)}
+        yield f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}"
 
 def parse_sld_rules(sld_path):
     try:

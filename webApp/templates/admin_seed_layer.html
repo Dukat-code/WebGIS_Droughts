@@ -1,0 +1,16 @@
+{% extends "admin_dashboard.html" %}
+{% block content %}
+<h2>Seed Layer Tiles</h2>
+<form method="post">
+    <label for="layer">Layer name:</label>
+    <input type="text" id="layer" name="layer" required><br><br>
+    <label for="zoom_start">Zoom start:</label>
+    <input type="number" id="zoom_start" name="zoom_start" value="3" min="0"><br><br>
+    <label for="zoom_stop">Zoom stop:</label>
+    <input type="number" id="zoom_stop" name="zoom_stop" value="8" min="0"><br><br>
+    <button type="submit">Start Seeding</button>
+</form>
+{% if message %}
+    <p>{{ message }}</p>
+{% endif %}
+{% endblock %}

@@ -1003,10 +1003,10 @@ class DownloadWidget extends Widget {
         this.container.style.borderRadius = '0';
         this.container.style.zIndex = '20';
         this.container.style.boxShadow = '0 -2px 8px rgba(44,62,80,0.08)';
-        this.container.style.maxHeight = '10vh';
-        this.container.style.overflow = 'hidden';
+        this.container.style.height = '40vh'; // Fixed height for widget
+        this.container.style.maxHeight = '40vh';
+        this.container.style.overflowY = 'auto'; // Allow vertical scrolling
         this.container.id = 'download-widget';
-        
     }
 
     renderContent() {
@@ -1101,6 +1101,17 @@ class DownloadWidget extends Widget {
         dateControls.appendChild(datePickers);
         dateControls.appendChild(fileNameDiv);
 
+        // Progress display element
+        this.progressDiv = document.createElement('div');
+        this.progressDiv.className = 'download-progress';
+        this.progressDiv.style.marginTop = '8px';
+        this.progressDiv.style.height = '20vh'; // Fixed height for progress
+        this.progressDiv.style.overflowY = 'auto';
+        this.progressDiv.style.fontSize = '0.95em';
+        this.progressDiv.style.background = '#f8f8f8';
+        this.progressDiv.style.border = '1px solid #ddd';
+        this.progressDiv.style.padding = '8px';
+
         // Add both lines to the widget
         const controls = document.createElement('div');
         controls.className = 'download-controls';
@@ -1108,6 +1119,7 @@ class DownloadWidget extends Widget {
         controls.appendChild(bboxDiv);
 
         this.contentDiv.appendChild(controls);
+        this.contentDiv.appendChild(this.progressDiv); // Add progress display
     }
 
     downloadData() {
@@ -1140,7 +1152,9 @@ class DownloadWidget extends Widget {
             }
             : {};
 
-        // Call Flask backend to export table
+        // Clear previous progress messages
+        this.progressDiv.innerHTML = '';
+        // Prepare POST request to initiate export 
         fetch(`/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1151,17 +1165,39 @@ class DownloadWidget extends Widget {
                 output_filename: fileName
             })
         })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success) {
-                alert(`File exported: ${result.file}`);
-                // Optionally, trigger download or show link
+        .then(response => {
+            if (response.ok && response.headers.get('content-type').includes('text/event-stream')) {
+                // Use SSE to receive progress messages
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                const readStream = () => {
+                    reader.read().then(({ done, value }) => {
+                        if (done) return;
+                        buffer += decoder.decode(value, { stream: true });
+                        let lines = buffer.split('\n\n');
+                        buffer = lines.pop(); // Save incomplete line
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                const msg = line.replace('data: ', '').trim();
+                                const div = document.createElement('div');
+                                div.textContent = msg;
+                                this.progressDiv.appendChild(div);
+                                this.progressDiv.scrollTop = this.progressDiv.scrollHeight;
+                            }
+                        });
+                        readStream();
+                    });
+                };
+                readStream();
             } else {
-                alert(`Error: ${result.error}`);
+                response.json().then(result => {
+                    this.progressDiv.innerHTML = `<div>Error: ${result.error || 'Unexpected response'}</div>`;
+                });
             }
         })
         .catch(error => {
-            alert(`Error: ${error}`);
+            this.progressDiv.innerHTML = `<div>Error: ${error}</div>`;
         });
         
     }
