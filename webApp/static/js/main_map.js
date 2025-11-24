@@ -1317,9 +1317,9 @@ class DownloadWidget extends Widget {
     updateDatePickers() {
         if (!this.activeLayer || !this.activeLayer.timeBounds) return;
         const bounds = this.activeLayer.timeBounds;
-        // Expecting bounds: {min_year, min_month, max_year, max_month}
-        const minDate = `${bounds.min_year}-${String(bounds.min_month).padStart(2, '0')}-01`;
-        const maxDate = `${bounds.max_year}-${String(bounds.max_month).padStart(2, '0')}-28`;
+        // Expecting bounds: {min_date, max_date}
+        const minDate = bounds.min_date;
+        const maxDate = bounds.max_date;
 
         this.fromDateInput.min = minDate;
         this.fromDateInput.max = maxDate;
