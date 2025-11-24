@@ -750,14 +750,23 @@ class TimelineWidget extends Widget {
 
         this.map = options.map;
         this.parent = options.parent;
-        this.dates = options.dates || []; // Array of date strings
-        this.parent.activeDate = this.dates.length > 0 ? this.dates[0] : null;
+        this.allDates = options.dates || []; // Full array of date strings
+        this.dates = []; // Filtered array of date strings
+        this.parent.activeDate = this.allDates.length > 0 ? this.allDates[0] : null;
         this.currentIndex = 0;
         this.isPlaying = false;
         this.interval = null;
 
         this.activeLayer = null;
         this.dateFormat = options.dateFormat || 'yyyy-mm-dd';
+
+        // New attributes
+        this.dateInit = null;
+        this.dateEnd = null;
+
+        // Date pickers
+        this.dateFromPicker = null;
+        this.dateToPicker = null;
 
         this.renderTimeline();
         this.setWidgetStyle();
@@ -771,7 +780,7 @@ class TimelineWidget extends Widget {
         this.container.style.borderRadius = '0';
         this.container.style.zIndex = '20';
         this.container.style.boxShadow = '0 -2px 8px rgba(44,62,80,0.08)';
-        this.container.style.maxHeight = '10vh';
+        this.container.style.maxHeight = '12vh';
         this.container.style.overflow = 'hidden';
         this.container.id = 'timeline-widget';
     }
@@ -782,34 +791,158 @@ class TimelineWidget extends Widget {
         const controls = document.createElement('div');
         controls.className = 'timeline-controls';
 
+        // Date pickers
+        this.dateFromPicker = document.createElement('input');
+        this.dateFromPicker.type = 'date';
+        this.dateFromPicker.id = 'timeline-date-from';
+
+        this.dateToPicker = document.createElement('input');
+        this.dateToPicker.type = 'date';
+        this.dateToPicker.id = 'timeline-date-to';
+
+        // Set initial values if available
+        if (this.dateInit) this.dateFromPicker.value = this.dateInit;
+        if (this.dateEnd) this.dateToPicker.value = this.dateEnd;
+
+        this.dateFromPicker.onchange = () => this.onDatePickerChange();
+        this.dateToPicker.onchange = () => this.onDatePickerChange();
+
+        // Play/pause button
         this.playPauseBtn = document.createElement('button');
         this.playPauseBtn.className = 'timeline-btn';
         this.playPauseBtn.innerHTML = '<span class="material-icons">&#9654;</span>';
         this.playPauseBtn.onclick = () => this.togglePlayPause();
 
+        // Reload button
         this.reloadBtn = document.createElement('button');
         this.reloadBtn.className = 'timeline-btn';
         this.reloadBtn.innerHTML = '<span class="material-icons">&#8634;</span>';
         this.reloadBtn.onclick = () => this.reloadTimeline();
 
+        // Slider
         this.slider = document.createElement('input');
         this.slider.type = 'range';
         this.slider.min = 0;
-        this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
-        this.slider.value = this.currentIndex;
+        this.slider.max = 0;
+        this.slider.value = 0;
         this.slider.className = 'timeline-slider';
         this.slider.oninput = () => this.updateElements();
 
+        // Date label
         this.dateLabel = document.createElement('span');
         this.dateLabel.className = 'timeline-date-label';
-        this.dateLabel.textContent = this.dates[this.currentIndex] || '';
+        this.dateLabel.textContent = '';
 
+        // Add controls
+        controls.appendChild(this.dateFromPicker);
+        controls.appendChild(this.dateToPicker);
         controls.appendChild(this.playPauseBtn);
         controls.appendChild(this.reloadBtn);
         controls.appendChild(this.slider);
         controls.appendChild(this.dateLabel);
 
         this.contentDiv.appendChild(controls);
+
+        // Set initial picker limits and calculate initial dates
+        this.updateDatePickersLimits();
+        this.calculateInitialDates();
+    }
+
+    calculateInitialDates() {
+        // Set initial picker values if not set
+        if (!this.dateFromPicker.value && this.dateInit) this.dateFromPicker.value = this.dateInit;
+        if (!this.dateToPicker.value && this.dateEnd) this.dateToPicker.value = this.dateEnd;
+        // Calculate initial dates array
+        this.recalculateDates();
+        this.currentIndex = 0;
+        this.slider.value = this.currentIndex;
+        this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
+        this.updateElements();
+    }
+
+    setActiveLayer(layer) {
+        this.activeLayer = layer;
+        if (layer === null) {
+            this.hide();
+        } else {
+            this.setDateFormat(layer.dateFormat);
+            // Set dateInit and dateEnd from layer.timeBounds if available
+            if (layer.timeBounds && layer.timeBounds.min_date && layer.timeBounds.max_date) {
+                this.dateInit = layer.timeBounds.min_date;
+                this.dateEnd = layer.timeBounds.max_date;
+                // Take allDates from timeBounds.all_dates
+                this.allDates = Array.isArray(layer.timeBounds.all_dates) ? layer.timeBounds.all_dates : [];
+            } else {
+                // Fallback: use first and last date from allDates array
+                this.dateInit = this.allDates.length > 0 ? this.allDates[0] : null;
+                this.dateEnd = this.allDates.length > 0 ? this.allDates[this.allDates.length - 1] : null;
+            }
+            // Set pickers and recalculate dates
+            this.updateDatePickersLimits();
+            this.dateFromPicker.value = this.dateInit;
+            this.dateToPicker.value = this.dateEnd;
+            this.recalculateDates();
+            this.currentIndex = 0;
+            this.slider.value = this.currentIndex;
+            this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
+            this.updateElements();
+            if (this.hidden) {
+                this.show();
+            }
+        }
+    }
+
+    setDateFormat(format) {
+        this.dateFormat = format;
+        this.updateDateLabel();
+    }
+
+    updateDatePickersLimits() {
+        if (this.dateInit && this.dateEnd) {
+            this.dateFromPicker.min = this.dateInit;
+            this.dateFromPicker.max = this.dateEnd;
+            this.dateToPicker.min = this.dateInit;
+            this.dateToPicker.max = this.dateEnd;
+        }
+    }
+
+    onDatePickerChange() {
+        // Ensure dateFrom <= dateTo and both within allowed range
+        let fromVal = this.dateFromPicker.value;
+        let toVal = this.dateToPicker.value;
+
+        // Clamp dateTo to be >= dateFrom
+        if (toVal < fromVal) {
+            toVal = fromVal;
+            this.dateToPicker.value = toVal;
+        }
+        // Clamp dateFrom to be <= dateTo
+        if (fromVal > toVal) {
+            fromVal = toVal;
+            this.dateFromPicker.value = fromVal;
+        }
+
+        // Update dateToPicker min to dateFrom
+        this.dateToPicker.min = fromVal;
+
+        // Recalculate dates array
+        this.recalculateDates();
+        // Reset slider
+        this.currentIndex = 0;
+        this.slider.value = this.currentIndex;
+        this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
+        this.updateElements();
+    }
+
+    recalculateDates() {
+        // Filter allDates array to be within [dateFrom, dateTo]
+        if (!this.dateInit || !this.dateEnd) return;
+        let fromVal = this.dateFromPicker.value;
+        let toVal = this.dateToPicker.value;
+        let allDates = this.activeLayer && this.activeLayer.allDates ? this.activeLayer.allDates : this.allDates;
+        this.dates = allDates.filter(d => d >= fromVal && d <= toVal);
+        // Update slider max
+        this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
     }
 
     togglePlayPause() {
@@ -859,17 +992,15 @@ class TimelineWidget extends Widget {
     updateLayer() {
         const date = this.dates[this.currentIndex];
         this.parent.activeDate = date;
-        const layer = this.activeLayer
-        console.log("Updating layer for date:", this.dates[this.currentIndex]);
-        if (this.map.hasLayer(layer) && 
-            layer.timeseries) {
-                const baseUrl = layer._url;
-                // Update the TIME parameter in the URL and refresh the layer
-                const newUrl = baseUrl.replace(/TIME=[^&]*/, `TIME=${date}`);
-                this.map.removeLayer(layer);
-                layer.setUrl(newUrl);
-                this.map.addLayer(layer);
-            }
+        const layer = this.activeLayer;
+        if (layer && this.map.hasLayer(layer) && layer.timeseries) {
+            const baseUrl = layer._url;
+            // Update the TIME parameter in the URL and refresh the layer
+            const newUrl = baseUrl.replace(/TIME=[^&]*/, `TIME=${date}`);
+            this.map.removeLayer(layer);
+            layer.setUrl(newUrl);
+            this.map.addLayer(layer);
+        }
     }
 
     updateDateLabel() {
@@ -879,25 +1010,6 @@ class TimelineWidget extends Widget {
             dateStr = dateStr.slice(0, 7); // Keep only yyyy-mm
         }
         this.dateLabel.textContent = dateStr;
-    }
-
-    setActiveLayer(layer) {
-        this.activeLayer = layer;      
-        if(layer===null)
-            this.hide();
-        else{
-            this.setDateFormat(layer.dateFormat);
-            const date = this.dates[this.currentIndex];
-            this.parent.activeDate = date;
-            if(this.hidden){
-                this.show();
-            }
-        }
-    }
-
-    setDateFormat(format) {
-        this.dateFormat = format;
-        this.updateDateLabel();
     }
 
     show() {
@@ -1003,10 +1115,10 @@ class DownloadWidget extends Widget {
         this.container.style.borderRadius = '0';
         this.container.style.zIndex = '20';
         this.container.style.boxShadow = '0 -2px 8px rgba(44,62,80,0.08)';
-        this.container.style.maxHeight = '10vh';
-        this.container.style.overflow = 'hidden';
+        this.container.style.height = '40vh'; // Fixed height for widget
+        this.container.style.maxHeight = '40vh';
+        this.container.style.overflowY = 'auto'; // Allow vertical scrolling
         this.container.id = 'download-widget';
-        
     }
 
     renderContent() {
@@ -1101,6 +1213,17 @@ class DownloadWidget extends Widget {
         dateControls.appendChild(datePickers);
         dateControls.appendChild(fileNameDiv);
 
+        // Progress display element
+        this.progressDiv = document.createElement('div');
+        this.progressDiv.className = 'download-progress';
+        this.progressDiv.style.marginTop = '8px';
+        this.progressDiv.style.height = '20vh'; // Fixed height for progress
+        this.progressDiv.style.overflowY = 'auto';
+        this.progressDiv.style.fontSize = '0.95em';
+        this.progressDiv.style.background = '#f8f8f8';
+        this.progressDiv.style.border = '1px solid #ddd';
+        this.progressDiv.style.padding = '8px';
+
         // Add both lines to the widget
         const controls = document.createElement('div');
         controls.className = 'download-controls';
@@ -1108,6 +1231,7 @@ class DownloadWidget extends Widget {
         controls.appendChild(bboxDiv);
 
         this.contentDiv.appendChild(controls);
+        this.contentDiv.appendChild(this.progressDiv); // Add progress display
     }
 
     downloadData() {
@@ -1140,7 +1264,9 @@ class DownloadWidget extends Widget {
             }
             : {};
 
-        // Call Flask backend to export table
+        // Clear previous progress messages
+        this.progressDiv.innerHTML = '';
+        // Prepare POST request to initiate export 
         fetch(`/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1151,17 +1277,39 @@ class DownloadWidget extends Widget {
                 output_filename: fileName
             })
         })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success) {
-                alert(`File exported: ${result.file}`);
-                // Optionally, trigger download or show link
+        .then(response => {
+            if (response.ok && response.headers.get('content-type').includes('text/event-stream')) {
+                // Use SSE to receive progress messages
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                const readStream = () => {
+                    reader.read().then(({ done, value }) => {
+                        if (done) return;
+                        buffer += decoder.decode(value, { stream: true });
+                        let lines = buffer.split('\n\n');
+                        buffer = lines.pop(); // Save incomplete line
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                const msg = line.replace('data: ', '').trim();
+                                const div = document.createElement('div');
+                                div.textContent = msg;
+                                this.progressDiv.appendChild(div);
+                                this.progressDiv.scrollTop = this.progressDiv.scrollHeight;
+                            }
+                        });
+                        readStream();
+                    });
+                };
+                readStream();
             } else {
-                alert(`Error: ${result.error}`);
+                response.json().then(result => {
+                    this.progressDiv.innerHTML = `<div>Error: ${result.error || 'Unexpected response'}</div>`;
+                });
             }
         })
         .catch(error => {
-            alert(`Error: ${error}`);
+            this.progressDiv.innerHTML = `<div>Error: ${error}</div>`;
         });
         
     }

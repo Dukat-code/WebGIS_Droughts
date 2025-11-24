@@ -137,11 +137,89 @@ def get_feature_data_from_lat_lon(layer, lat, lon, yearFrom, monthFrom, yearTo, 
             }
     except Exception as e:
         return {"error": str(e)}
+    
+def get_feature_data_from_lat_lon_dekad(layer, lat, lon, dateFrom, dateTo, conn):
+    """
+    Get feature info from the database based on layer, lat, lon, and date,
+    returned as a numpy array [year][month][dekad], plus avg and st_dev per dekad
+    for the selected cell over all dates in the table.
+    Dekads: 1 = days 1-10, 2 = days 11-20, 3 = days 21-end of month.
+    """
+    try:
+        date_from = datetime.strptime(dateFrom, "%Y-%m-%d").date()
+        date_to = datetime.strptime(dateTo, "%Y-%m-%d").date()
+        value_query = f"""
+            SELECT date, value, xcol, yrow
+            FROM {layer}
+            WHERE ST_Contains(cell, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
+            AND date BETWEEN %s AND %s
+            ORDER BY date;
+        """
+        with conn.cursor() as cursor:
+            cursor.execute(value_query, (lon, lat, date_from, date_to))
+            results = cursor.fetchall()
+            if not results:
+                return {"error": "No data found for the provided date range and location."}
+            # Get all years and months in the range
+            years = sorted(list(set([row[0].year for row in results])))
+            months = list(range(1, 13))
+            dekads = [1, 2, 3]
+            arr = np.full((len(years), len(months), len(dekads)), np.nan)
+            xcol = results[0][2]
+            yrow = results[0][3]
+            year_idx_map = {y: i for i, y in enumerate(years)}
+            for row in results:
+                date_obj = row[0]
+                value = row[1]
+                year_idx = year_idx_map[date_obj.year]
+                month_idx = date_obj.month - 1
+                day = date_obj.day
+                if 1 <= day <= 10:
+                    dekad_idx = 0
+                elif 11 <= day <= 20:
+                    dekad_idx = 1
+                else:
+                    dekad_idx = 2
+                arr[year_idx, month_idx, dekad_idx] = value
+            arr = np.nan_to_num(arr, nan=0.0)
+            # Compute avg and std per dekad (over all years/months)
+            dekad_avgs = []
+            dekad_stds = []
+            for d in range(3):
+                dekad_values = arr[:, :, d].flatten()
+                valid = dekad_values[dekad_values != 0.0]
+                if valid.size > 0:
+                    dekad_avgs.append(float(np.mean(valid)))
+                    dekad_stds.append(float(np.std(valid)))
+                else:
+                    dekad_avgs.append(0.0)
+                    dekad_stds.append(0.0)
+            return {
+                "x": xcol,
+                "y": yrow,
+                "sample": arr.tolist(),
+                "years": years,
+                "months": months,
+                "dekads": [1, 2, 3],
+                "date_from": str(date_from),
+                "date_to": str(date_to),
+                "latitude": lat,
+                "longitude": lon,
+                "avg_per_dekad": dekad_avgs,
+                "std_per_dekad": dekad_stds,
+                "labels": [
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"
+                ],
+                "dekad_labels": ["Days 1-10", "Days 11-20", "Days 21-end"]
+            }
+    except Exception as e:
+        return {"error": str(e)}
 
 def get_data_time_bounds(lat, lon, layer, conn):
     """
-    Get the minimum and maximum year and month for the given location from the view.
-    Returns: {"min_year": int, "min_month": int, "max_year": int, "max_month": int}
+    Get the minimum and maximum date for the given location from the view.
+    Returns: {"min_date": "YYYY-MM-DD", "max_date": "YYYY-MM-DD"}
     """
     try:
         query = f"""
@@ -154,25 +232,30 @@ def get_data_time_bounds(lat, lon, layer, conn):
             min_date, max_date = cursor.fetchone()
             if not min_date or not max_date:
                 return None
+            # Convert to string if necessary
             if isinstance(min_date, str):
-                min_date = datetime.strptime(min_date, "%Y-%m-%d").date()
+                min_date_str = min_date
+            else:
+                min_date_str = min_date.strftime("%Y-%m-%d")
             if isinstance(max_date, str):
-                max_date = datetime.strptime(max_date, "%Y-%m-%d").date()
+                max_date_str = max_date
+            else:
+                max_date_str = max_date.strftime("%Y-%m-%d")
             return {
-                "min_year": min_date.year,
-                "min_month": min_date.month,
-                "max_year": max_date.year,
-                "max_month": max_date.month
+                "min_date": min_date_str,
+                "max_date": max_date_str
             }
     except Exception as e:
         return None
 
 def get_layer_time_bounds(layer, conn):
     """
-    Get the minimum and maximum year and month for the given location from the view.
-    Returns: {"min_year": int, "min_month": int, "max_year": int, "max_month": int}
+    Get the minimum and maximum date for the given layer,
+    and all available dates as a sorted list of strings.
+    Returns: {"min_date": "YYYY-MM-DD", "max_date": "YYYY-MM-DD", "all_dates": [date_str, ...]}
     """
     try:
+        # Get min and max date
         query = f"""
             SELECT MIN(date), MAX(date)
             FROM {layer}
@@ -183,15 +266,23 @@ def get_layer_time_bounds(layer, conn):
             if not min_date or not max_date:
                 return None
             if isinstance(min_date, str):
-                min_date = datetime.strptime(min_date, "%Y-%m-%d").date()
+                min_date_str = min_date
+            else:
+                min_date_str = min_date.strftime("%Y-%m-%d")
             if isinstance(max_date, str):
-                max_date = datetime.strptime(max_date, "%Y-%m-%d").date()
-            return {
-                "min_year": min_date.year,
-                "min_month": min_date.month,
-                "max_year": max_date.year,
-                "max_month": max_date.month
-            }
+                max_date_str = max_date
+            else:
+                max_date_str = max_date.strftime("%Y-%m-%d")
+        # Get all available dates
+        query_dates = f"SELECT DISTINCT date FROM {layer} ORDER BY date ASC"
+        with conn.cursor() as cursor:
+            cursor.execute(query_dates)
+            all_dates = [row[0].strftime("%Y-%m-%d") if not isinstance(row[0], str) else row[0] for row in cursor.fetchall()]
+        return {
+            "min_date": min_date_str,
+            "max_date": max_date_str,
+            "all_dates": all_dates
+        }
     except Exception as e:
         return None
 
@@ -375,9 +466,18 @@ def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_
     centroid_lon = min_lon + delta_x * resolution
     return centroid_lat, centroid_lon
 
+def format_hms(seconds):
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        return f"{h:02}:{m:02}:{s:02}"
+
 def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, end_date, bbox, output_filename, chunksize=100000):
-    import gc
-    print("Exporting table {} to NetCDF...".format(table_name))
+    
+    yield "Starting export..."
+
+    # Get bounds
     if bbox:
         query = f"""
             SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow)
@@ -389,13 +489,16 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             cursor.execute(query, params)
             result = cursor.fetchone()
             if not result:
-                return {"error": "No data found in the table."}
+                yield "No data found in the table."
+                return
             min_xcol, max_xcol, min_yrow, max_yrow = result
     else:
         query = f"SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow) FROM {table_name};"
         with conn.cursor() as cursor:
             cursor.execute(query)
             min_xcol, max_xcol, min_yrow, max_yrow = cursor.fetchone()
+
+    # Get reference point for centroid calculation
     query = f"""
         SELECT xcol, yrow, ST_AsText(ST_Centroid(cell)) AS centroid
         FROM {table_name}
@@ -406,10 +509,13 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         cursor.execute(query, (min_xcol, min_yrow))
         result = cursor.fetchone()
         if not result:
-            return {"error": "No data found in the table."}
+            yield "No data found in the table."
+            return
         _, _, centroid_wkt = result
         coords = centroid_wkt.replace('POINT(', '').replace(')', '').split()
         min_lon, max_lat = float(coords[0]), float(coords[1])
+
+    # Prepare main query
     query = f"""
         SELECT t.xcol, t.yrow, t.date, t.value
         FROM {table_name} t
@@ -423,22 +529,21 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             AND t.yrow BETWEEN %s AND %s
         """
         params.extend([min_xcol, max_xcol, min_yrow, max_yrow])
+
+    # Count total rows
     count_query = f"SELECT COUNT(*) FROM ({query}) AS subq"
     with conn.cursor() as cursor:
         cursor.execute(count_query, params)
         total_rows = cursor.fetchone()[0]
     if total_rows == 0:
-        return {"error": "No data found for the given parameters."}
-    def format_hms(seconds):
-        seconds = int(seconds)
-        h = seconds // 3600
-        m = (seconds % 3600) // 60
-        s = seconds % 60
-        return f"{h:02}:{m:02}:{s:02}"
+        yield "No data found for the given parameters."
+        return
+
     all_dfs = []
     processed_rows = 0
     last_percent = -1.0
     start_time = time.time()
+
     try:
         for i, df in enumerate(pd.read_sql(query, conn, params=params, chunksize=chunksize)):
             if df.empty:
@@ -459,13 +564,14 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
             else:
                 remaining = 0
             if percent - last_percent >= 0.1 or processed_rows == total_rows:
-                print(f"Processed {processed_rows}/{total_rows} rows... ({percent:.1f}%) "
-                      f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
+                yield (f"Processed {processed_rows}/{total_rows} rows... ({percent:.1f}%) "
+                       f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
                 last_percent = percent
             del df
             gc.collect()
         if not all_dfs:
-            return {"error": "No data found for the given parameters."}
+            yield "No data found for the given parameters."
+            return
         big_df = pd.concat(all_dfs)
         del all_dfs
         gc.collect()
@@ -475,11 +581,9 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         ds.to_netcdf(output_filename)
         del ds, big_df
         gc.collect()
-        print("Export completed successfully.")
-        return {"success": True, "file": output_filename}
+        yield f"Export completed successfully. File: {output_filename}"
     except Exception as e:
-        print(f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}")
-        return {"error": str(e)}
+        yield f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}"
 
 def parse_sld_rules(sld_path):
     try:

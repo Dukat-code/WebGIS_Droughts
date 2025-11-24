@@ -10,10 +10,12 @@ from functools import wraps
 from src.get_layer_info import (
     get_feature_data, get_layer_time_bounds, get_meteo_stations_geojson, get_meteostation_month_data,
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
-    get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules
+    get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules,
+    get_feature_data_from_lat_lon_dekad
 )
 from src.import_meteo_csv import import_meteo_csv_stream   
 from src.create_layer import read_nc_file_stream
+from src.seeding import seed_layer_tiles
 
 ##############################################################################
 # CONFIGURATION
@@ -161,7 +163,7 @@ def admin_config():
     # Prepare filtered config for display
     filtered_config = configparser.ConfigParser()
     for section in config.sections():
-        if section == 'database':
+        if section == 'database' or section == 'geoserver':
             continue
         filtered_config.add_section(section)
         for key, value in config.items(section):
@@ -177,7 +179,7 @@ def admin_config():
             edited_config = configparser.ConfigParser()
             edited_config.read_string(config_raw)
             for section in edited_config.sections():
-                if section == 'database':
+                if section == 'database' or section == 'geoserver':
                     continue
                 for key, value in edited_config.items(section):
                     if section == 'base' and key == 'base_url':
@@ -422,6 +424,21 @@ def create_layer_stream():
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
+@app.route('/admin/seed_layer', methods=['GET', 'POST'])
+@admin_required
+def admin_seed_layer():
+    message = None
+    if request.method == 'POST':
+        layer = request.form.get('layer')
+        zoom_start = int(request.form.get('zoom_start', 3))
+        zoom_stop = int(request.form.get('zoom_stop', 8))
+        try:
+            seed_layer_tiles(layer, zoom_start, zoom_stop)
+            message = f"Seeding started for layer '{layer}' (zoom {zoom_start}-{zoom_stop})."
+        except Exception as e:
+            message = f"Error: {e}"
+    return render_template('admin_seed_layer.html', message=message)
+
 ###############################################################################
 # Existing routes
 ###############################################################################
@@ -430,6 +447,13 @@ def create_layer_stream():
 def get_data_from_latlon(lat, lon, yearFrom, monthFrom, yearTo, monthTo, layer):
     conn = get_db_connection()
     feat_info = get_feature_data_from_lat_lon(layer, lat, lon, int(yearFrom), int(monthFrom), int(yearTo), int(monthTo), conn)
+    close_db_connection(conn)
+    return jsonify(feat_info)
+
+@app.route('/get_data_from_latlon_dekad/<lat>/<lon>/<dateFrom>/<dateTo>/<layer>')
+def get_data_from_latlon_dekad(lat, lon, dateFrom, dateTo, layer):
+    conn = get_db_connection()
+    feat_info = get_feature_data_from_lat_lon_dekad(layer, float(lat), float(lon), dateFrom, dateTo, conn)
     close_db_connection(conn)
     return jsonify(feat_info)
 
@@ -481,6 +505,7 @@ def get_product_info(layer):
 
 @app.route('/clim_chart/<layer>/<lat>/<lon>')
 def clim_chart(layer, lat, lon):
+    print("en clim_chart")
     style = get_key_config(layer).get('style')
     rules = parse_sld_rules(f"./misc/sld/{style}")
     rules_json = json.dumps(rules)
@@ -491,7 +516,37 @@ def clim_chart(layer, lat, lon):
     conn = get_db_connection()
     time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
-    return render_template('clim_chart.html',lat=lat,lon=lon,layer=layer,year_init=time_bounds['min_year'],year_end=time_bounds['max_year'], color_min=color_min, color_max=color_max, style=rules_json, localhost=base_url)
+    date_format = get_key_config(layer).get('date_format')
+    print("Date format:", date_format)
+    if not time_bounds or not time_bounds.get('min_date') or not time_bounds.get('max_date'):
+        # Handle missing data gracefully
+        return render_template(
+            'clim_chart.html',
+            lat=lat,
+            lon=lon,
+            layer=layer,
+            min_date='',
+            max_date='',
+            color_min=color_min,
+            color_max=color_max,
+            style=rules_json,
+            localhost=base_url,
+            date_format=date_format,
+            error="No data available for this location/layer."
+        )
+    return render_template(
+        'clim_chart.html',
+        lat=lat,
+        lon=lon,
+        layer=layer,
+        min_date=time_bounds['min_date'],
+        max_date=time_bounds['max_date'],
+        color_min=color_min,
+        color_max=color_max,
+        style=rules_json,
+        localhost=base_url,
+        date_format=date_format
+    )
 
 @app.route('/clim_station_chart/<layer>/<lat>/<lon>')
 def clim_station_chart(layer, lat, lon):
@@ -524,9 +579,14 @@ def export_table(table_name):
         bbox = None
     output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
     conn = get_db_connection()
-    result = export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename)
-    close_db_connection(conn)
-    return jsonify(result)
+
+    def generate():
+        # Modify export_table_to_netcdf to yield messages
+        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
+            yield f"data: {message}\n\n"
+        close_db_connection(conn)
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/')
 def main_map():

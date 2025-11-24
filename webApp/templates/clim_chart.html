@@ -8,38 +8,38 @@
     <body>
         <div class="dashboard">
             <div class="ctrlPanel">
-                    <div class="control">
-                        <label class="title">From</label>
-                        <input type="text" id="yearFrom" value="50" class="year" readonly>
-                        <input type="range" min={{year_init}} max={{year_end}} value={{year_init}} class="slider" id="yearFromSlider">
-                        <div class="scale">
-                            <span>{{year_init}}</span>
-                            <span>{{year_end}}</span>
-                        </div>
-                        <input type="text" id="monthFrom" value="" class="month" readonly>
-                        <input type="range" min="0" max="11" value="0" class="slider" id="monthFromSlider">
-                        <div class="scale">
-                            <span>January</span>
-                            <span>December</span>
-                        </div>
-                    </div>
-                    <div class="control">
-                        <label class="title">To</label>
-                        <input type="text" id="yearTo" value="50" class="year" readonly>
-                        <input type="range" min={{year_init}} max={{year_end}} value={{year_init}} class="slider" id="yearToSlider">
-                        <div class="scale">
-                            <span>{{year_init}}</span>
-                            <span>{{year_end}}</span>
-                        </div>
-                        <input type="text" id="monthTo" value="" class="month" readonly>
-                        <input type="range" min="0" max="11" value="0" class="slider" id="monthToSlider">
-                        <div class="scale">
-                            <span>January</span>
-                            <span>December</span>
-                        </div>
-                    </div>
-                    <button class="setButton" id="seeButton">See Data</button>
-                    <button id="downloadCSVBtn" class="downloadCSVBtn">Download CSV</button>
+                <div class="control">
+                    <label class="title">From Year</label>
+                    <input type="range" id="yearFromSlider">
+                    <input type="text" id="yearFrom" class="year" readonly>
+                </div>
+                <div class="control">
+                    <label class="title">From Month</label>
+                    <input type="range" id="monthFromSlider" min="0" max="11" value="0">
+                    <input type="text" id="monthFrom" class="month" readonly>
+                </div>
+                <div class="control">
+                    <label class="title">To Year</label>
+                    <input type="range" id="yearToSlider">
+                    <input type="text" id="yearTo" class="year" readonly>
+                </div>
+                <div class="control">
+                    <label class="title">To Month</label>
+                    <input type="range" id="monthToSlider" min="0" max="11" value="11">
+                    <input type="text" id="monthTo" class="month" readonly>
+                </div>
+                <div class="control" id="dekadFromControl" style="display:none;">
+                    <label class="title">From Dekad</label>
+                    <input type="range" min="0" max="2" value="0" class="slider" id="dekadFromSlider">
+                    <span id="dekadFromLabel">Dekad: 1 (Days 1-10)</span>
+                </div>
+                <div class="control" id="dekadToControl" style="display:none;">
+                    <label class="title">To Dekad</label>
+                    <input type="range" min="0" max="2" value="2" class="slider" id="dekadToSlider">
+                    <span id="dekadToLabel">Dekad: 3 (Days 21-end)</span>
+                </div>
+                <button class="setButton" id="seeButton">See Data</button>
+                <button id="downloadCSVBtn" class="downloadCSVBtn">Download CSV</button>
             </div>
             <div class="chart">
                 <canvas id="myChart" style="background-color: rgb(243, 243, 243);"></canvas>
@@ -51,11 +51,13 @@
                 "{{lat}}",
                 "{{lon}}",
                 "{{layer}}",
-                "{{year_init}}",
-                "{{year_end}}",
+                "{{min_date}}",
+                "{{max_date}}",
                 "{{color_min}}",
                 "{{color_max}}",
-                {{ style|safe }});
+                {{ style|safe }},
+                "{{ date_format }}"
+            );
         </script>
     </body>
 </html>
