@@ -585,11 +585,9 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
     except Exception as e:
         yield f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}"
 
-def parse_sld_rules(sld_path):
+def parse_sld_rules(sld_source):
     try:
-        print(f"Parsing SLD file: {sld_path}")
-        tree = ET.parse(sld_path)
-        root = tree.getroot()
+        root = ET.fromstring(sld_source)
         ns = {
             'sld': 'http://www.opengis.net/sld',
             'ogc': 'http://www.opengis.net/ogc'

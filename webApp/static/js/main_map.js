@@ -1266,6 +1266,9 @@ class DownloadWidget extends Widget {
 
         // Clear previous progress messages
         this.progressDiv.innerHTML = '';
+        // Disable download button
+        this.downloadBtn.disabled = true;
+
         // Prepare POST request to initiate export 
         fetch(`/export_table/${table_name}`, {
             method: 'POST',
@@ -1285,7 +1288,10 @@ class DownloadWidget extends Widget {
                 let buffer = '';
                 const readStream = () => {
                     reader.read().then(({ done, value }) => {
-                        if (done) return;
+                        if (done) {
+                            this.downloadBtn.disabled = false; // Re-enable button when finished
+                            return;
+                        }
                         buffer += decoder.decode(value, { stream: true });
                         let lines = buffer.split('\n\n');
                         buffer = lines.pop(); // Save incomplete line
@@ -1305,13 +1311,14 @@ class DownloadWidget extends Widget {
             } else {
                 response.json().then(result => {
                     this.progressDiv.innerHTML = `<div>Error: ${result.error || 'Unexpected response'}</div>`;
+                    this.downloadBtn.disabled = false; // Re-enable button on error
                 });
             }
         })
         .catch(error => {
             this.progressDiv.innerHTML = `<div>Error: ${error}</div>`;
+            this.downloadBtn.disabled = false; // Re-enable button on error
         });
-        
     }
 
     updateDatePickers() {

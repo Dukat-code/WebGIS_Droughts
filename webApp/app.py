@@ -4,6 +4,7 @@ from waitress import serve
 import configparser
 import os
 import psycopg2
+import requests
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 
@@ -506,18 +507,41 @@ def get_product_info(layer):
 @app.route('/clim_chart/<layer>/<lat>/<lon>')
 def clim_chart(layer, lat, lon):
     print("en clim_chart")
-    style = get_key_config(layer).get('style')
-    rules = parse_sld_rules(f"./misc/sld/{style}")
-    rules_json = json.dumps(rules)
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
+    style = get_key_config(layer).get('style')
+    rules_json = "[]"  # Default
+    if style == "SLD" or style == "sld":
+        geoserver_url = get_key_config('base').get('geoserver_url')
+        username = get_key_config('geoserver').get('username')
+        password = get_key_config('geoserver').get('password')
+        workspace = "droughts"  # Change if your workspace is different
+
+        # 1. Get the style name for the layer
+        layer_info_url = f"{geoserver_url}/rest/layers/{workspace}:{layer}.json"
+        try:
+            resp = requests.get(layer_info_url, auth=(username, password))
+            resp.raise_for_status()
+            layer_info = resp.json()
+            style_name = layer_info['layer']['defaultStyle']['name']
+            if ':' in style_name:
+                style_name = style_name.split(':', 1)[1]  # Remove workspace prefix
+            # 2. Fetch the SLD using the style name
+            sld_url = f"{geoserver_url}/rest/workspaces/{workspace}/styles/{style_name}.sld"
+            sld_resp = requests.get(sld_url, auth=(username, password))
+            sld_resp.raise_for_status()
+            sld_content = sld_resp.text
+            rules = parse_sld_rules(sld_content)
+            rules_json = json.dumps(rules)
+        except Exception as e:
+            print(f"Error fetching SLD from GeoServer: {e}")
+            rules_json = "[]"
     config = load_config()
     base_url = config['base'].get('base_url', '')
     conn = get_db_connection()
     time_bounds = get_data_time_bounds(lat, lon, layer, conn)
     close_db_connection(conn)
     date_format = get_key_config(layer).get('date_format')
-    print("Date format:", date_format)
     if not time_bounds or not time_bounds.get('min_date') or not time_bounds.get('max_date'):
         # Handle missing data gracefully
         return render_template(
