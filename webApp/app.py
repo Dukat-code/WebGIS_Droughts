@@ -262,13 +262,21 @@ def admin_add_station_data():
 def admin_upload():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
-    print("Uploading to:", upload_folder)  # For debugging
     message = None
 
+    # List uploaded files
+    uploaded_files = [f for f in os.listdir(upload_folder) if os.path.isfile(os.path.join(upload_folder, f))]
+
     if request.method == 'POST':
-        if 'file' not in request.files:
-            message = "No file part"
-        else:
+        if 'delete_file' in request.form:
+            file_to_delete = request.form.get('delete_file')
+            filepath = os.path.join(upload_folder, file_to_delete)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                message = f"File '{file_to_delete}' deleted successfully."
+            else:
+                message = f"File '{file_to_delete}' not found."
+        elif 'file' in request.files:
             file = request.files['file']
             if file.filename == '':
                 message = "No selected file"
@@ -277,7 +285,10 @@ def admin_upload():
                 file.save(filepath)
                 message = f"File '{file.filename}' uploaded successfully."
 
-    return render_template('admin_upload.html', message=message)
+        # Refresh file list after upload/delete
+        uploaded_files = [f for f in os.listdir(upload_folder) if os.path.isfile(os.path.join(upload_folder, f))]
+
+    return render_template('admin_upload.html', message=message, uploaded_files=uploaded_files)
 
 @app.route('/admin/download', methods=['GET', 'POST'])
 @admin_required
