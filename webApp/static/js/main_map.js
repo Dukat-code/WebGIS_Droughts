@@ -33,19 +33,7 @@ class Map {
         }).addTo(this.map);
 
         // Time slider for time series layers
-        // TODO: fetch available dates from server based on active layer
-        const availableDates = [
-                "1991-01-01",
-                "1991-06-01",
-                "2001-01-01",
-                "2001-06-01",
-                "2011-01-01",
-                "2011-06-01",
-                "2020-01-01",
-                "2020-06-01",
-                "2025-01-01",
-                "2025-06-01"
-            ];
+        const availableDates = [];
 
         this.timeline = new TimelineWidget({
             title: "Time Line",
