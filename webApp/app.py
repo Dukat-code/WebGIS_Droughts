@@ -633,7 +633,7 @@ def main_map():
     map_config['layers'] = layers
     map_config['localhost'] = base_url
     print(map_config)
-    return render_template('main_map.html', map_config=map_config)
+    return render_template('main_map.html', map_config=map_config, logged_in=session.get('admin_logged_in', False))
 
 if __name__ == "__main__":
     import argparse

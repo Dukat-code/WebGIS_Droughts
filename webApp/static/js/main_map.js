@@ -170,6 +170,7 @@ class Map {
      *  Set up the download control (download button and widget toggle)
      */
     setDownloadControl() {
+        if(!window.isLoggedIn) return;
         this.downloadActive = false;
         const downloadControl = L.control({position: 'topright'});
         downloadControl.onAdd = (map) => {
@@ -1148,7 +1149,13 @@ class DownloadWidget extends Widget {
         this.downloadBtn.id = 'download-btn';
         this.downloadBtn.className = 'download-btn';
         this.downloadBtn.innerHTML = '&#128190;';
-        this.downloadBtn.onclick = () => this.downloadData();
+        // Only enable if logged in
+        if (!window.isLoggedIn) {
+            this.downloadBtn.disabled = true;
+            this.downloadBtn.title = "Login required to download data";
+        } else {
+            this.downloadBtn.onclick = () => this.downloadData();
+        }
 
         
 

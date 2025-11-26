@@ -29,6 +29,8 @@
 
     <script>
         // Basic Leaflet map
+        console.log("logged_in:", {{ logged_in|tojson }});
+        window.isLoggedIn = {{ logged_in|tojson }};
         const cfg = {{ map_config | tojson }};
 	    new Map(cfg,"map");
 
