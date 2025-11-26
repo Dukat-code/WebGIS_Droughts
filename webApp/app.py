@@ -176,19 +176,23 @@ def admin_config():
     if request.method == 'POST':
         config_raw = request.form.get('config_raw')
         if config_raw:
-            # Parse edited config, update only allowed sections/keys
             edited_config = configparser.ConfigParser()
             edited_config.read_string(config_raw)
+            # Remove sections not present in edited_config
+            for section in list(config.sections()):
+                if section not in edited_config.sections() and section not in ['database', 'geoserver']:
+                    config.remove_section(section)
+            # Update/add sections and keys from edited_config
             for section in edited_config.sections():
                 if section == 'database' or section == 'geoserver':
                     continue
+                if not config.has_section(section):
+                    config.add_section(section)
                 for key, value in edited_config.items(section):
                     if section == 'base' and key == 'base_url':
                         continue
-                    if not config.has_section(section):
-                        config.add_section(section)
                     config.set(section, key, value)
-            # Save the full config (preserving base/base_url and database)
+            # Save the full config
             with open(config_path, 'w') as f:
                 config.write(f)
             message = "Configuration updated successfully."
@@ -510,7 +514,7 @@ def clim_chart(layer, lat, lon):
     color_min = get_key_config(layer).get('chart_color_min')
     color_max = get_key_config(layer).get('chart_color_max')
     style = get_key_config(layer).get('style')
-    rules_json = "[]"  # Default
+    rules_json = None  # Default
     if style == "SLD" or style == "sld":
         geoserver_url = get_key_config('base').get('geoserver_url')
         username = get_key_config('geoserver').get('username')
@@ -532,10 +536,10 @@ def clim_chart(layer, lat, lon):
             sld_resp.raise_for_status()
             sld_content = sld_resp.text
             rules = parse_sld_rules(sld_content)
-            rules_json = json.dumps(rules)
+            rules_json = json.dumps(rules) if rules else None
         except Exception as e:
             print(f"Error fetching SLD from GeoServer: {e}")
-            rules_json = "[]"
+            rules_json = None
     config = load_config()
     base_url = config['base'].get('base_url', '')
     conn = get_db_connection()

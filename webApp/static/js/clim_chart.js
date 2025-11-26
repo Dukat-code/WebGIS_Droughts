@@ -11,7 +11,7 @@ function createElements(lat, lon, layer, min_date, max_date, color_min, color_ma
     let maxYear = max_date ? parseInt(max_date.substring(0, 4)) : 2020;
 
     if (style && (style !== 'null')) {
-        chart_style = style;
+        chart_style = JSON.parse(style);
     } else {
         colorMin = color_min && (color_min !== 'None') ? color_min : 'rgba(56, 140, 193, 0.8)';
         colorMax = color_max && (color_max !== 'None') ? color_max : 'rgba(62, 167, 234, 0.48)';
@@ -158,6 +158,8 @@ function getData(lat, lon, yearFrom, monthFrom, dekadFrom, yearTo, monthTo, deka
 }
 
 function draw_chart(data, avg, stdPlus, stdMinus, labels) {
+    console.log("chart_style:");
+    console.log(chart_style);
     let backgroundColors = [];
     const ctx = document.getElementById('myChart');
     if (chart_style && (chart_style !== 'null')) {
