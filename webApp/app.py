@@ -5,6 +5,7 @@ import configparser
 import os
 import psycopg2
 import requests
+import threading
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 
@@ -58,6 +59,54 @@ def close_db_connection(conn):
         conn.close()
 
 ###############################################################################
+# Progress message management
+###############################################################################
+def save_progress_message(user_name, process_id, message):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO progress_message (user_name, process_id, message) VALUES (%s, %s, %s)",
+        (user_name, process_id, message)
+    )
+    conn.commit()
+    cur.close()
+    close_db_connection(conn)
+
+def get_progress_messages(user_name, process_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT message FROM progress_message WHERE user_name = %s AND process_id = %s ORDER BY created_at ASC",
+        (user_name, process_id)
+    )
+    messages = [row[0] for row in cur.fetchall()]
+    cur.close()
+    close_db_connection(conn)
+    return messages
+
+def clear_progress_messages(user_name, process_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM progress_message WHERE user_name = %s AND process_id = %s",
+        (user_name, process_id)
+    )
+    conn.commit()
+    cur.close()
+    close_db_connection(conn)       
+
+def clear_user_progress_messages(user_name):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM progress_message WHERE user_name = %s",
+        (user_name,)
+    )
+    conn.commit()
+    cur.close()
+    close_db_connection(conn)
+
+###############################################################################
 # Admin user management
 ###############################################################################
 
@@ -97,7 +146,11 @@ def change_admin_password(username, new_password):
     close_db_connection(conn)
 
 ###############################################################################
-# Flask app
+###############################################################################
+###                                                                         ###
+###                             Flask app                                   ###   
+###                                                                         ###
+###############################################################################
 ###############################################################################
 
 app = Flask(__name__)
@@ -105,8 +158,13 @@ app.secret_key = 'droughts'  # Change this!
 CORS(app)
 
 ###############################################################################
-# Admin login and protection
 ###############################################################################
+# ADMINISTRATIVE ROUTES
+###############################################################################
+###############################################################################
+@app.context_processor
+def inject_user():
+    return dict(user_name=session.get('admin_username'))
 
 def admin_required(f):
     @wraps(f)
@@ -115,6 +173,75 @@ def admin_required(f):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
+
+####################################################
+# Alerts, progress and information messages
+####################################################
+
+@app.route('/admin/send_alert', methods=['POST'])
+@admin_required
+def admin_send_alert():
+    user_name = request.form.get('user_name')
+    alert_text = request.form.get('alert_text')
+    if not user_name or not alert_text or len(alert_text) > 300:
+        return jsonify({'status': 'error', 'message': 'Invalid input'}), 400
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+        (user_name, alert_text)
+    )
+    conn.commit()
+    cur.close()
+    close_db_connection(conn)
+    return jsonify({'status': 'success'})
+
+@app.route('/admin/delete_alert', methods=['POST'])
+@admin_required
+def admin_delete_alert():
+    alert_id = request.form.get('alert_id')
+    if not alert_id:
+        return redirect(url_for('admin_dashboard'))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
+    conn.commit()
+    cur.close()
+    close_db_connection(conn)
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/progress_messages')
+@admin_required
+def progress_messages():
+    process_id = request.args.get('process_id')
+    user_name = session.get('admin_username')
+    if process_id == "all":
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT message FROM progress_message WHERE user_name = %s ORDER BY created_at ASC",
+            (user_name,)
+        )
+        messages = [row[0] for row in cur.fetchall()]
+        cur.close()
+        close_db_connection(conn)
+    else:
+        messages = get_progress_messages(user_name, process_id)
+    return jsonify({'messages': messages})
+
+####################################################
+# Logout
+####################################################
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    return redirect(url_for('main_map'))
+
+####################################################
+# Login
+####################################################
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -145,12 +272,29 @@ def admin_login():
             error = "Invalid username or password"
     return render_template('admin_login.html', error=error)
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin_logged_in', None)
-    session.pop('admin_username', None)
-    return redirect(url_for('main_map'))
+####################################################
+# Administrative dashboard
+####################################################
 
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    user_name = session.get('admin_username')
+    clear_user_progress_messages(user_name)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, user_name, alert_time, alert_text FROM alerts ORDER BY alert_time DESC")
+    alerts = [
+        dict(id=row[0], user_name=row[1], alert_time=row[2], alert_text=row[3])
+        for row in cur.fetchall()
+    ]
+    cur.close()
+    close_db_connection(conn)
+    return render_template('admin_dashboard_content.html', user_name=session.get('admin_username'), alerts=alerts)
+
+####################################################
+# Administrative edition of configuration
+####################################################
 @app.route('/admin/config', methods=['GET', 'POST'])
 @admin_required
 def admin_config():
@@ -205,11 +349,9 @@ def admin_config():
 
     return render_template('admin_config.html', config_raw=config_raw, message=message)
 
-@app.route('/admin/dashboard')
-@admin_required
-def admin_dashboard():
-    return render_template('admin_dashboard.html', username=session.get('admin_username'))
-
+####################################################
+# User management
+####################################################
 @app.route('/admin/users', methods=['GET', 'POST'])
 @admin_required
 def admin_users():
@@ -229,34 +371,9 @@ def admin_users():
             message = f"Password for {username} changed."
     return render_template('admin_users.html', message=message)
 
-
-
-@app.route('/admin/add_station_data', methods=['GET', 'POST'])
-@admin_required
-def admin_add_station_data():
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
-    csv_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.csv')]
-    message = None
-
-    if request.method == 'POST':
-        csv_filename = request.form.get('csv_filename')
-        if not csv_filename:
-            message = "No CSV file selected."
-        else:
-            # Call the import service directly
-            from src.import_meteo_csv import import_meteo_csv
-            config_path = os.path.join(project_root, 'config', 'config.ini')
-            sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
-            csv_file = os.path.join(upload_folder, csv_filename)
-            try:
-                import_meteo_csv(csv_file, config_path=config_path, sql_path=sql_path)
-                message = f"Imported '{csv_filename}' successfully."
-            except Exception as e:
-                message = f"Error importing: {e}"
-
-    return render_template('admin_add_station_data.html', csv_files=csv_files, message=message)
-
+####################################################
+# Upload management
+####################################################
 @app.route('/admin/upload', methods=['GET', 'POST'])
 @admin_required
 def admin_upload():
@@ -290,6 +407,10 @@ def admin_upload():
 
     return render_template('admin_upload.html', message=message, uploaded_files=uploaded_files)
 
+####################################################
+# Download management
+####################################################
+
 @app.route('/admin/download', methods=['GET', 'POST'])
 @admin_required
 def admin_download():
@@ -315,56 +436,133 @@ def admin_download():
 
     return render_template('admin_download.html', files=files, message=message)
 
+####################################################
+# Meteo station data import with progress tracking
+####################################################
+
+@app.route('/admin/add_station_data', methods=['GET', 'POST'])
+@admin_required
+def admin_add_station_data():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    csv_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.csv')]
+    message = None
+
+    if request.method == 'POST':
+        csv_filename = request.form.get('csv_filename')
+        if not csv_filename:
+            message = "No CSV file selected."
+        else:
+            # Call the import service directly
+            from src.import_meteo_csv import import_meteo_csv
+            config_path = os.path.join(project_root, 'config', 'config.ini')
+            sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+            csv_file = os.path.join(upload_folder, csv_filename)
+            try:
+                import_meteo_csv(csv_file, config_path=config_path, sql_path=sql_path)
+                message = f"Imported '{csv_filename}' successfully."
+            except Exception as e:
+                message = f"Error importing: {e}"
+
+    return render_template('admin_add_station_data.html', csv_files=csv_files, message=message)
+
+###
+### Background meteo station data import with progress tracking
+###
+
+def import_meteo_stations_background(csv_file, config_path, sql_path, user_name):
+    process_id = f"import_meteostations:{os.path.basename(csv_file)}"
+    clear_progress_messages(user_name, process_id)
+    error_message = None
+    success = True
+    try:
+        # Delete previous data
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM meteostation_month_data;")
+            conn.commit()
+            cur.close()
+            close_db_connection(conn)
+            msg = "Previous data deleted (if any)."
+            print(msg)
+            save_progress_message(user_name, process_id, msg)
+        except Exception:
+            msg = "Could not delete previous data (ignored)."
+            print(msg)
+            save_progress_message(user_name, process_id, msg)
+        # Import CSV
+        try:
+            from src.import_meteo_csv import import_meteo_csv_stream
+            for message in import_meteo_csv_stream(csv_file, config_path=config_path, sql_path=sql_path):
+                print(message)
+                save_progress_message(user_name, process_id, message)
+        except Exception as e:
+            error_message = f"Error importing: {e}"
+            print(error_message)
+            save_progress_message(user_name, process_id, error_message)
+            success = False
+        # Delete CSV file if successful
+        if success:
+            try:
+                os.remove(csv_file)
+                msg = f"Imported '{os.path.basename(csv_file)}' successfully and deleted the file."
+                print(msg)
+                save_progress_message(user_name, process_id, msg)
+            except Exception as e:
+                msg = f"Imported but could not delete CSV file: {e}"
+                print(msg)
+                save_progress_message(user_name, process_id, msg)
+        # Send alert to user
+        alert_text = error_message if error_message else f"Meteostation import finished successfully."
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+                (user_name, alert_text[:300])
+            )
+            conn.commit()
+            cur.close()
+            close_db_connection(conn)
+        except Exception as e:
+            print(f"Could not send alert: {e}")
+        # Final progress message and cleanup
+        save_progress_message(user_name, process_id, "process finished")
+        clear_progress_messages(user_name, process_id)
+    except Exception as e:
+        msg = f"Background process error: {e}"
+        print(msg)
+        save_progress_message(user_name, process_id, msg)
+
 @app.route('/admin/import_meteo_stations_stream', methods=['POST'])
 @admin_required
 def import_meteo_stations_stream():
-    # Access request.form here, before defining generate()
     csv_filename = request.form.get('csv_filename')
     if not csv_filename:
-        def error_gen():
-            yield "data: No CSV filename provided.\n\n"
-        return Response(stream_with_context(error_gen()), mimetype='text/event-stream')
+        return jsonify({'status': 'error', 'message': 'No CSV filename provided.'}), 400
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     csv_file = os.path.join(project_root, 'fileExchange', 'uploads', csv_filename)
     config_path = os.path.join(project_root, 'config', 'config.ini')
     sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+    user_name = session.get('admin_username')
 
     if not os.path.isfile(csv_file):
-        def error_gen():
-            yield f"data: CSV file '{csv_filename}' not found.\n\n"
-        return Response(stream_with_context(error_gen()), mimetype='text/event-stream')
+        return jsonify({'status': 'error', 'message': f"CSV file '{csv_filename}' not found."}), 400
 
-    def generate():
-        # ... rest of your streaming logic ...
-        # (no access to request.form here!)
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            try:
-                cur.execute("DELETE FROM meteostation_month_data;")
-                conn.commit()
-            except Exception:
-                conn.rollback()
-            cur.close()
-            close_db_connection(conn)
-            yield "data: Previous data deleted (if any).\n\n"
-        except Exception:
-            yield "data: Could not delete previous data (ignored).\n\n"
+    thread = threading.Thread(
+        target=import_meteo_stations_background,
+        args=(csv_file, config_path, sql_path, user_name)
+    )
+    thread.start()
 
-        try:
-            for message in import_meteo_csv_stream(csv_file, config_path=config_path, sql_path=sql_path):
-                yield f"data: {message}\n\n"
-        except Exception as e:
-            yield f"data: Error importing: {e}\n\n"
+    process_id = f"import_meteostations:{csv_filename}"
+    return jsonify({'status': 'started', 'process_id': process_id, 'message': 'Import started in background. You will receive an alert when it finishes.'})
 
-        try:
-            os.remove(csv_file)
-            yield f"data: Imported '{csv_filename}' successfully and deleted the file.\n\n"
-        except Exception as e:
-            yield f"data: Imported but could not delete CSV file: {e}\n\n"
-
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+############################################################
+# Layer creation
+#############################################################
 
 @app.route('/admin/layer_creation', methods=['GET', 'POST'])
 @admin_required
@@ -384,6 +582,96 @@ def admin_layer_creation():
         message=message
     )
 
+####
+#### Background layer creation process
+#### 
+
+def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path, add_to_table, product_json, layer_xml, metadata_folder, user_name):
+    process_id = f"layer_creation:{layer_name}"
+    clear_progress_messages(user_name, process_id)  # Clear old messages
+    error_message = None
+    success = True
+    try:
+        for message in read_nc_file_stream(
+            nc_file,
+            layer_name,
+            value_dim,
+            time_dim,
+            lon_dim,
+            lat_dim,
+            config_path=config_path,
+            add_to_table=add_to_table
+        ):
+            print(message)
+            save_progress_message(user_name, process_id, message)
+            if message.startswith("Error"):
+                error_message = message
+                success = False
+
+        # Only delete files if process was successful
+        action = "addition" if add_to_table else "creation"
+        if success:
+            msg_action = "edited" if add_to_table else "created"
+            try:
+                os.remove(nc_file)
+                msg = f"Layer {msg_action} and file '{os.path.basename(nc_file)}' deleted."
+                print(msg)
+                save_progress_message(user_name, process_id, msg)
+            except Exception as e:
+                msg = f"Layer {msg_action} but could not delete file: {e}"
+                print(msg)
+                save_progress_message(user_name, process_id, msg)
+            # Move product info JSON
+            if product_json:
+                try:
+                    target_json = os.path.join(metadata_folder, f"{layer_name}.json")
+                    os.rename(product_json, target_json)
+                    msg = f"Product info file moved to '{target_json}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move product info file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            # Move layer metadata XML
+            if layer_xml:
+                try:
+                    target_xml = os.path.join(metadata_folder, f"{layer_name}.xml")
+                    os.rename(layer_xml, target_xml)
+                    msg = f"Metadata file moved to '{target_xml}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move metadata file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+        else:
+            msg = f"Layer {action} failed: {error_message}"
+            print(msg)
+            save_progress_message(user_name, process_id, msg)
+            # Do NOT delete or move files
+
+        # --- Send alert to user ---
+        alert_text = error_message if error_message else f"Layer '{layer_name}' {action} finished successfully."
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+                (user_name, alert_text[:300])
+            )
+            conn.commit()
+            cur.close()
+            close_db_connection(conn)
+            # Delete all progress messages for this process
+            clear_progress_messages(user_name, process_id)
+        except Exception as e:
+            print(f"Could not send alert: {e}")
+    except Exception as e:
+        msg = f"Background process error: {e}"
+        print(msg)
+        save_progress_message(user_name, process_id, msg)
+
 @app.route('/admin/create_layer_stream', methods=['POST'])
 @admin_required
 def create_layer_stream():
@@ -393,53 +681,32 @@ def create_layer_stream():
     time_dim = request.form.get('time_dim')
     lon_dim = request.form.get('lon_dim')
     lat_dim = request.form.get('lat_dim')
-    product_json = request.form.get('product_json')
-    layer_xml = request.form.get('layer_xml')
+    product_json_name = request.form.get('product_json')
+    layer_xml_name = request.form.get('layer_xml')
+    add_to_table = request.form.get('add_to_table', 'false') == 'true'
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
     metadata_folder = os.path.join(project_root, 'metadata')
     nc_file = os.path.join(upload_folder, nc_filename)
-    json_file = os.path.join(upload_folder, product_json) if product_json else None
-    xml_file = os.path.join(upload_folder, layer_xml) if layer_xml else None
+    product_json = os.path.join(upload_folder, product_json_name) if product_json_name else None
+    layer_xml = os.path.join(upload_folder, layer_xml_name) if layer_xml_name else None
     config_path = os.path.join(project_root, 'config', 'config.ini')
+    user_name = session.get('admin_username')
 
-    def generate():
-        for message in read_nc_file_stream(
-            nc_file,
-            layer_name,
-            value_dim,
-            time_dim,
-            lon_dim,
-            lat_dim,
-            config_path=config_path
-        ):
-            yield f"data: {message}\n\n"
-        # After streaming is done, move the .json and .xml files
-        try:
-            os.remove(nc_file)
-            yield f"data: Layer created and file '{nc_filename}' deleted.\n\n"
-        except Exception as e:
-            yield f"data: Layer created but could not delete file: {e}\n\n"
-        # Move product info JSON
-        if json_file:
-            try:
-                target_json = os.path.join(metadata_folder, f"{layer_name}.json")
-                os.rename(json_file, target_json)
-                yield f"data: Product info file moved to '{target_json}'.\n\n"
-            except Exception as e:
-                yield f"data: Could not move product info file: {e}\n\n"
-        # Move layer metadata XML
-        if xml_file:
-            try:
-                target_xml = os.path.join(metadata_folder, f"{layer_name}.xml")
-                os.rename(xml_file, target_xml)
-                yield f"data: Metadata file moved to '{target_xml}'.\n\n"
-            except Exception as e:
-                yield f"data: Could not move metadata file: {e}\n\n"
+    # Start the background thread
+    thread = threading.Thread(
+        target=layer_creation_background,
+        args=(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path, add_to_table, product_json, layer_xml, metadata_folder, user_name)
+    )
+    thread.start()
 
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    # Immediately respond to the client
+    return jsonify({'status': 'started', 'message': 'Layer creation started in background. You will receive an alert when it finishes.'})
 
+############################################################
+# Tile seeding
+############################################################
 @app.route('/admin/seed_layer', methods=['GET', 'POST'])
 @admin_required
 def admin_seed_layer():
@@ -455,8 +722,66 @@ def admin_seed_layer():
             message = f"Error: {e}"
     return render_template('admin_seed_layer.html', message=message)
 
+############################################################
+# Export data to NetCDF
+############################################################
+def export_table_background(user_name, table_name, init_date, end_date, bbox, output_filename):
+    process_id = f"export_table:{table_name}"
+    clear_progress_messages(user_name, process_id)
+    try:
+        conn = get_db_connection()
+        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
+            print(message)
+            save_progress_message(user_name, process_id, message)
+        close_db_connection(conn)
+        msg = f"Export finished. File: {output_filename}"
+        print(msg)
+        save_progress_message(user_name, process_id, msg)
+        alert_text = f"Export of '{table_name}' finished successfully."
+    except Exception as e:
+        msg = f"Error exporting table: {e}"
+        print(msg)
+        save_progress_message(user_name, process_id, msg)
+        alert_text = msg
+    # Send alert to user
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+            (user_name, alert_text[:300])
+        )
+        conn.commit()
+        cur.close()
+        close_db_connection(conn)
+    except Exception as e:
+        print(f"Could not send alert: {e}")
+    # Final progress message and cleanup
+    save_progress_message(user_name, process_id, "process finished")
+    clear_progress_messages(user_name, process_id)
+
+@app.route('/admin/export_table/<table_name>', methods=['POST'])
+@admin_required
+def export_table(table_name):
+    init_date = request.json.get("init_date")
+    end_date = request.json.get("end_date")
+    bbox = request.json.get("bbox") 
+    if bbox == {}:
+        bbox = None
+    output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
+    user_name = session.get('admin_username')
+
+    thread = threading.Thread(
+        target=export_table_background,
+        args=(user_name, table_name, init_date, end_date, bbox, output_filename)
+    )
+    thread.start()
+
+    process_id = f"export_table:{table_name}"
+    return jsonify({'status': 'started', 'process_id': process_id, 'message': 'Export started in background. You will receive an alert when it finishes.'})
+
 ###############################################################################
-# Existing routes
+# Public API endpoints
 ###############################################################################
 
 @app.route('/get_data_from_lat_lon/<lat>/<lon>/<yearFrom>/<monthFrom>/<yearTo>/<monthTo>/<layer>')
@@ -608,24 +933,6 @@ def get_metadata(layer):
         return Response(xml_content, mimetype='application/xml')
     except Exception as e:
         return Response(f"<error>{str(e)}</error>", mimetype='application/xml', status=404)
-
-@app.route('/export_table/<table_name>', methods=['POST'])
-def export_table(table_name):
-    init_date = request.json.get("init_date")
-    end_date = request.json.get("end_date")
-    bbox = request.json.get("bbox") 
-    if bbox == {}:
-        bbox = None
-    output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
-    conn = get_db_connection()
-
-    def generate():
-        # Modify export_table_to_netcdf to yield messages
-        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
-            yield f"data: {message}\n\n"
-        close_db_connection(conn)
-
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/')
 def main_map():

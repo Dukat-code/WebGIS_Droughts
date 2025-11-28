@@ -1,0 +1,41 @@
+{% extends "admin_dashboard.html" %}
+{% block content %}
+    <span id="progress_mesages" style="display: none;">
+        <h2>Progress Messages</h2>
+        <div id="progress" style="max-height:200px;overflow-y:auto;background:#f8f8ff;border:1px solid #ccc;padding:10px;border-radius:6px;white-space:pre-line;"></div>
+    </span>
+    <script>
+    let dashboardPolling = null;
+    function pollDashboardProgress() {
+        dashboardPolling = setInterval(function() {
+            fetch('/admin/progress_messages?process_id=all')
+                .then(response => response.json())
+                .then(data => {
+                    let progressDiv = document.getElementById('progress');
+                    let progressSpan = document.getElementById('progress_mesages');
+                    if (data.messages.length > 0) {
+                        progressSpan.style.display = "block";
+                        progressDiv.innerText = data.messages.join('\n');
+                        progressDiv.scrollTop = progressDiv.scrollHeight;
+                    }
+                });
+        }, 2000); // Poll every 2 seconds
+    }
+    pollDashboardProgress();
+    </script>
+
+    <h2>Pending Alerts</h2>
+    <ul>
+        {% for alert in alerts %}
+        <li>
+            <strong>{{ alert.user_name }}</strong> ({{ alert.alert_time }}): {{ alert.alert_text }}
+            <form method="post" action="{{ url_for('admin_delete_alert') }}" style="display:inline;">
+                <input type="hidden" name="alert_id" value="{{ alert.id }}">
+                <button type="submit">Dismiss</button>
+            </form>
+        </li>
+        {% else %}
+        <li>No alerts.</li>
+        {% endfor %}
+    </ul>
+{% endblock %}

@@ -6,6 +6,7 @@ import xarray as xr
 import argparse
 import sys
 import time
+import re
 
 ####################################################################################
 # Read configuration dynamically
@@ -35,6 +36,34 @@ def determine_spatial_resolution(lat, grids):
     DATA_GRID = grids.get(str(RES))
     print(f"Determined spatial resolution: {RES} degrees, using grid table: {DATA_GRID}")
     return RES, DATA_GRID
+
+####################################################################################
+# Get grid table from existing view
+####################################################################################
+def get_existing_grid_table(conn, layer_name):
+    cursor = conn.cursor()
+    try:
+        query = f"""
+            SELECT definition
+            FROM pg_views
+            WHERE viewname = %s
+        """
+        cursor.execute(query, (layer_name,))
+        result = cursor.fetchone()
+        if not result:
+            raise Exception(f"Could not find view definition for {layer_name}")
+        definition = result[0]
+        print("DEBUG: View definition for", layer_name)
+        print(definition)
+        # Updated regex to match both "JOIN <table> grid" and "JOIN <table> AS grid"
+        match = re.search(r'JOIN\s+([a-zA-Z0-9_\.]+)\s+(?:AS\s+)?grid', definition)
+        if not match:
+            raise Exception("Could not parse grid table from view definition.")
+        grid_table = match.group(1)
+        print(f"Existing grid table for layer {layer_name}: {grid_table}")
+        return grid_table
+    finally:
+        cursor.close()
 
 ####################################################################################
 # Creates the tables to contain the information
@@ -127,9 +156,9 @@ def format_hms(seconds):
     return f"{h:02}:{m:02}:{s:02}"
 
 ####################################################################################
-# Read NetCDF file and populate the database    
+# Generator version of read_nc_file for streaming progress updates
 ####################################################################################
-def read_nc_file(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path=None, batch_size=5000):
+def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path=None, batch_size=5000, add_to_table=False):
     config = load_config(config_path)
     grids = get_grids(config)
     db_config = dict(config.items('database'))
@@ -137,56 +166,49 @@ def read_nc_file(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, con
     try:
         cursor = conn.cursor()
         ds = xr.open_dataset(nc_file)
-        print(ds.info())
-        print(ds.dims)
         data = ds[value_dim]
         time_vals = ds[time_dim].values
-
-        # Get original coordinate arrays and their order
         lat_raw = ds[lat_dim].values
         lon_raw = ds[lon_dim].values
-
-        # Map to ascending order and keep index mapping
         lat_sorted_idx = np.argsort(lat_raw)
         lon_sorted_idx = np.argsort(lon_raw)
         lat_sorted = lat_raw[lat_sorted_idx]
         lon_sorted = lon_raw[lon_sorted_idx]
-
-        # For mapping from value to index in the original array
         lat_val_to_idx = {v: i for i, v in enumerate(lat_raw)}
         lon_val_to_idx = {v: i for i, v in enumerate(lon_raw)}
 
-        print("data.values.shape:", data.values.shape)
-        print("data.dims:", data.dims)
-
-        RES, DATA_GRID = determine_spatial_resolution(lat_sorted, grids)
-        if DATA_GRID is None:
-            raise Exception("Could not determine grid table for spatial resolution.")
-
-        create_tables(conn, layer_name, DATA_GRID)
+        if add_to_table:
+            DATA_GRID = get_existing_grid_table(conn, layer_name)
+            message = f"Using existing grid table: {DATA_GRID}"
+            print(message)
+            yield message
+        else:
+            RES, DATA_GRID = determine_spatial_resolution(lat_sorted, grids)
+            if DATA_GRID is None:
+                message = "ERROR: Could not determine grid table for spatial resolution."
+                print(message)
+                yield message
+                return
+            create_tables(conn, layer_name, DATA_GRID)
+            message = f"Created tables and view for layer {layer_name} with grid {DATA_GRID}"
+            print(message)
+            yield message
 
         min_lat, max_lat = float(np.min(lat_sorted)), float(np.max(lat_sorted))
         min_lon, max_lon = float(np.min(lon_sorted)), float(np.max(lon_sorted))
-
         grid_cells = fetch_grid_cells(conn, DATA_GRID, min_lon, min_lat, max_lon, max_lat)
-
-        # Figure out axis order for fast NumPy indexing
         dim_names = list(data.dims)
         dim_map = {
             lat_dim: dim_names.index(lat_dim),
             lon_dim: dim_names.index(lon_dim),
             time_dim: dim_names.index(time_dim)
         }
-
-        # Decide mode: points inside cells or at vertices
         center_cell = grid_cells[len(grid_cells)//2]
         cell_lat_min, cell_lat_max = center_cell['ymin'], center_cell['ymax']
         cell_lon_min, cell_lon_max = center_cell['xmin'], center_cell['xmax']
-
         inside_lat_mask = (lat_sorted >= cell_lat_min) & (lat_sorted < cell_lat_max)
         inside_lon_mask = (lon_sorted >= cell_lon_min) & (lon_sorted < cell_lon_max)
         inside_mode = np.any(inside_lat_mask) and np.any(inside_lon_mask)
-
         at_vertex_mode = False
         if not inside_mode:
             vertex_coords = [
@@ -202,207 +224,19 @@ def read_nc_file(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, con
                 if lat_idx.size > 0 and lon_idx.size > 0:
                     matches += 1
             at_vertex_mode = (matches == 4)
-
         if not inside_mode and not at_vertex_mode:
-            print("ERROR: NetCDF points are neither inside cells nor at vertices.")
+            message = "ERROR: NetCDF points are neither inside cells nor at vertices."
+            print(message)
+            yield message
             return
-
         total_cells = len(grid_cells)
         total_times = len(time_vals)
         total_iterations = total_cells * total_times
         progress_count = 0
         batch = []
-
         last_percent = -1.0
         start_time = time.time()
-
         # --- INSIDE MODE ---
-        if inside_mode:
-            print("Inside cell mode activated.")
-            cell_to_idx = []
-            for cell in grid_cells:
-                cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
-                cell_lon_min, cell_lon_max = cell['xmin'], cell['xmax']
-                inside_lat_mask = (lat_sorted >= cell_lat_min) & (lat_sorted < cell_lat_max)
-                inside_lon_mask = (lon_sorted >= cell_lon_min) & (lon_sorted < cell_lon_max)
-                lat_indices = np.where(inside_lat_mask)[0]
-                lon_indices = np.where(inside_lon_mask)[0]
-                if lat_indices.size > 0 and lon_indices.size > 0:
-                    la_val = lat_sorted[lat_indices[0]]
-                    lo_val = lon_sorted[lon_indices[0]]
-                    la_idx = lat_val_to_idx[la_val]
-                    lo_idx = lon_val_to_idx[lo_val]
-                    cell_to_idx.append((cell['xcol'], cell['yrow'], la_idx, lo_idx))
-                else:
-                    cell_to_idx.append(None)
-
-            for t_idx, tv in enumerate(time_vals):
-                for mapping in cell_to_idx:
-                    if mapping is not None:
-                        xcol, yrow, la_idx, lo_idx = mapping
-                        idx = [None, None, None]
-                        idx[dim_map[lat_dim]] = la_idx
-                        idx[dim_map[lon_dim]] = lo_idx
-                        idx[dim_map[time_dim]] = t_idx
-                        try:
-                            val = data.values[tuple(idx)]
-                        except Exception as err:
-                            print(f"DEBUG: NumPy indexing error for cell ({xcol}, {yrow}), indices: {tuple(idx)}, error={err}")
-                            continue
-                        if not np.isnan(val):
-                            batch.append((xcol, yrow, float(val), np.datetime_as_string(tv, unit='D')))
-                            if len(batch) >= batch_size:
-                                batch_insert(cursor, layer_name, batch)
-                                batch = []
-                    progress_count += 1
-                    percent = (progress_count / total_iterations) * 100
-                    if percent - last_percent >= 0.1 or progress_count == total_iterations:
-                        elapsed = time.time() - start_time
-                        if percent > 0:
-                            estimated_total = elapsed / (percent / 100)
-                            remaining = estimated_total - elapsed
-                        else:
-                            remaining = 0
-                        print(f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) "
-                              f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
-                        last_percent = percent
-                if batch:
-                    batch_insert(cursor, layer_name, batch)
-                    batch = []
-
-        # --- VERTEX MODE ---
-        elif at_vertex_mode:
-            print("At vertex mode activated.")
-            cell_to_vertex_indices = []
-            for cell in grid_cells:
-                cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
-                cell_lon_min, cell_lon_max = cell['xmin'], cell['xmax']
-                vertex_coords = [
-                    (cell_lat_min, cell_lon_min),
-                    (cell_lat_min, cell_lon_max),
-                    (cell_lat_max, cell_lon_min),
-                    (cell_lat_max, cell_lon_max)
-                ]
-                indices = []
-                for vlat, vlon in vertex_coords:
-                    lat_idx = np.where(np.isclose(lat_sorted, vlat, atol=1e-4))[0]
-                    lon_idx = np.where(np.isclose(lon_sorted, vlon, atol=1e-4))[0]
-                    if lat_idx.size == 0 or lon_idx.size == 0:
-                        continue
-                    la_val = lat_sorted[lat_idx[0]]
-                    lo_val = lon_sorted[lon_idx[0]]
-                    la_idx = lat_val_to_idx[la_val]
-                    lo_idx = lon_val_to_idx[lo_val]
-                    indices.append((la_idx, lo_idx))
-                if len(indices) == 4:
-                    cell_to_vertex_indices.append((cell['xcol'], cell['yrow'], indices))
-                else:
-                    cell_to_vertex_indices.append(None)
-
-            for t_idx, tv in enumerate(time_vals):
-                for mapping in cell_to_vertex_indices:
-                    if mapping is not None:
-                        xcol, yrow, indices = mapping
-                        vals = []
-                        for la_idx, lo_idx in indices:
-                            idx = [None, None, None]
-                            idx[dim_map[lat_dim]] = la_idx
-                            idx[dim_map[lon_dim]] = lo_idx
-                            idx[dim_map[time_dim]] = t_idx
-                            try:
-                                val = data.values[tuple(idx)]
-                            except Exception as err:
-                                print(f"DEBUG: NumPy indexing error for cell ({xcol}, {yrow}), indices: {tuple(idx)}, error={err}")
-                                continue
-                            if not np.isnan(val):
-                                vals.append(float(val))
-                        if len(vals) == 4:
-                            avg_value = float(np.mean(vals))
-                            batch.append((xcol, yrow, avg_value, np.datetime_as_string(tv, unit='D')))
-                            if len(batch) >= batch_size:
-                                batch_insert(cursor, layer_name, batch)
-                                batch = []
-                    progress_count += 1
-                    percent = (progress_count / total_iterations) * 100
-                    if percent - last_percent >= 0.1 or progress_count == total_iterations:
-                        elapsed = time.time() - start_time
-                        if percent > 0:
-                            estimated_total = elapsed / (percent / 100)
-                            remaining = estimated_total - elapsed
-                        else:
-                            remaining = 0
-                        print(f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) "
-                              f"Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}")
-                        last_percent = percent
-                if batch:
-                    batch_insert(cursor, layer_name, batch)
-                    batch = []
-
-        conn.commit()
-        cursor.close()
-        print("All data inserted successfully.")
-        conn.close()
-        return "Layer creation completed."
-
-    except Exception as e:
-        print(f"Database or processing error: {e}", file=sys.stderr)
-        conn.rollback()
-        if 'cursor' in locals():
-            cursor.close()
-        conn.close()
-        raise
-
-####################################################################################
-# Generator version of read_nc_file for streaming progress updates
-####################################################################################
-
-def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path=None, batch_size=5000):
-    import time
-    config = load_config(config_path)
-    grids = get_grids(config)
-    db_config = dict(config.items('database'))
-    conn = psycopg2.connect(**db_config)
-    try:
-        cursor = conn.cursor()
-        ds = xr.open_dataset(nc_file)
-        data = ds[value_dim]
-        time_vals = ds[time_dim].values
-        lat_raw = ds[lat_dim].values
-        lon_raw = ds[lon_dim].values
-        lat_sorted_idx = np.argsort(lat_raw)
-        lon_sorted_idx = np.argsort(lon_raw)
-        lat_sorted = lat_raw[lat_sorted_idx]
-        lon_sorted = lon_raw[lon_sorted_idx]
-        lat_val_to_idx = {v: i for i, v in enumerate(lat_raw)}
-        lon_val_to_idx = {v: i for i, v in enumerate(lon_raw)}
-        RES, DATA_GRID = determine_spatial_resolution(lat_sorted, grids)
-        if DATA_GRID is None:
-            yield "ERROR: Could not determine grid table for spatial resolution."
-            return
-        create_tables(conn, layer_name, DATA_GRID)
-        min_lat, max_lat = float(np.min(lat_sorted)), float(np.max(lat_sorted))
-        min_lon, max_lon = float(np.min(lon_sorted)), float(np.max(lon_sorted))
-        grid_cells = fetch_grid_cells(conn, DATA_GRID, min_lon, min_lat, max_lon, max_lat)
-        dim_names = list(data.dims)
-        dim_map = {
-            lat_dim: dim_names.index(lat_dim),
-            lon_dim: dim_names.index(lon_dim),
-            time_dim: dim_names.index(time_dim)
-        }
-        center_cell = grid_cells[len(grid_cells)//2]
-        cell_lat_min, cell_lat_max = center_cell['ymin'], center_cell['ymax']
-        cell_lon_min, cell_lon_max = center_cell['xmin'], center_cell['xmax']
-        inside_lat_mask = (lat_sorted >= cell_lat_min) & (lat_sorted < cell_lat_max)
-        inside_lon_mask = (lon_sorted >= cell_lon_min) & (lon_sorted < cell_lon_max)
-        inside_mode = np.any(inside_lat_mask) and np.any(inside_lon_mask)
-        total_cells = len(grid_cells)
-        total_times = len(time_vals)
-        total_iterations = total_cells * total_times
-        progress_count = 0
-        batch = []
-        last_percent = -1.0
-        start_time = time.time()
-        # Only implement inside_mode for brevity
         if inside_mode:
             cell_to_idx = []
             for cell in grid_cells:
@@ -446,7 +280,74 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
                             remaining = estimated_total - elapsed
                         else:
                             remaining = 0
-                        yield f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}"
+                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}"
+                        print(message)
+                        yield message
+                        last_percent = percent
+                if batch:
+                    batch_insert(cursor, layer_name, batch)
+                    batch = []
+        # --- VERTEX MODE ---
+        elif at_vertex_mode:
+            cell_to_vertex_indices = []
+            for cell in grid_cells:
+                cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
+                cell_lon_min, cell_lon_max = cell['xmin'], cell['xmax']
+                vertex_coords = [
+                    (cell_lat_min, cell_lon_min),
+                    (cell_lat_min, cell_lon_max),
+                    (cell_lat_max, cell_lon_min),
+                    (cell_lat_max, cell_lon_max)
+                ]
+                indices = []
+                for vlat, vlon in vertex_coords:
+                    lat_idx = np.where(np.isclose(lat_sorted, vlat, atol=1e-4))[0]
+                    lon_idx = np.where(np.isclose(lon_sorted, vlon, atol=1e-4))[0]
+                    if lat_idx.size == 0 or lon_idx.size == 0:
+                        continue
+                    la_val = lat_sorted[lat_idx[0]]
+                    lo_val = lon_sorted[lon_idx[0]]
+                    la_idx = lat_val_to_idx[la_val]
+                    lo_idx = lon_val_to_idx[lo_val]
+                    indices.append((la_idx, lo_idx))
+                if len(indices) == 4:
+                    cell_to_vertex_indices.append((cell['xcol'], cell['yrow'], indices))
+                else:
+                    cell_to_vertex_indices.append(None)
+            for t_idx, tv in enumerate(time_vals):
+                for mapping in cell_to_vertex_indices:
+                    if mapping is not None:
+                        xcol, yrow, indices = mapping
+                        vals = []
+                        for la_idx, lo_idx in indices:
+                            idx = [None, None, None]
+                            idx[dim_map[lat_dim]] = la_idx
+                            idx[dim_map[lon_dim]] = lo_idx
+                            idx[dim_map[time_dim]] = t_idx
+                            try:
+                                val = data.values[tuple(idx)]
+                            except Exception:
+                                continue
+                            if not np.isnan(val):
+                                vals.append(float(val))
+                        if len(vals) == 4:
+                            avg_value = float(np.mean(vals))
+                            batch.append((xcol, yrow, avg_value, np.datetime_as_string(tv, unit='D')))
+                            if len(batch) >= batch_size:
+                                batch_insert(cursor, layer_name, batch)
+                                batch = []
+                    progress_count += 1
+                    percent = (progress_count / total_iterations) * 100
+                    if percent - last_percent >= 0.1 or progress_count == total_iterations:
+                        elapsed = time.time() - start_time
+                        if percent > 0:
+                            estimated_total = elapsed / (percent / 100)
+                            remaining = estimated_total - elapsed
+                        else:
+                            remaining = 0
+                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}"
+                        print(message)
+                        yield message
                         last_percent = percent
                 if batch:
                     batch_insert(cursor, layer_name, batch)
@@ -454,9 +355,13 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
         conn.commit()
         cursor.close()
         conn.close()
-        yield "Layer creation completed."
+        message = "Layer creation completed."
+        print(message)
+        yield message
     except Exception as e:
-        yield f"Error: {e}"
+        message = f"Error: {e}"
+        print(message)
+        yield message
 
 ####################################################################################
 # MAIN
@@ -470,18 +375,21 @@ def main():
     parser.add_argument('--lon_dim', default='longitude', help="Longitude dimension name (default: 'longitude')")
     parser.add_argument('--lat_dim', default='latitude', help="Latitude dimension name (default: 'latitude')")
     parser.add_argument('--config_path', default=None, help="Path to config.ini")
+    parser.add_argument('--add_to_table', action='store_true', help="Add data to existing table (do not create table/view)")
     args = parser.parse_args()
 
     try:
-        read_nc_file(
+        for msg in read_nc_file_stream(
             args.nc_file,
             args.layer_name,
             args.value_dim,
             args.time_dim,
             args.lon_dim,
             args.lat_dim,
-            config_path=args.config_path
-        )
+            config_path=args.config_path,
+            add_to_table=args.add_to_table
+        ):
+            print(msg)
     except Exception as e:
         print(f"Could not process NetCDF file: {e}", file=sys.stderr)
         sys.exit(1)

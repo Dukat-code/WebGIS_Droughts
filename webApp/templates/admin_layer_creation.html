@@ -1,7 +1,20 @@
 {% extends "admin_dashboard.html" %}
 {% block content %}
+<style>
+#progress {
+    margin-bottom: 20px;
+    color: blue;
+    height: 100px;
+    overflow-y: auto;
+    white-space: pre-line;
+    background: #f8f8ff;
+    border: 1px solid #ccc;
+    padding: 10px;
+    border-radius: 6px;
+    margin-top: 10px;
+}
+</style>
 <h2>Layer Creation (Admin)</h2>
-<div id="progress" style="margin-bottom:20px;color:blue;"></div>
 <form id="layerForm">
     <label for="nc_filename">Select NetCDF file:</label>
     <select name="nc_filename" id="nc_filename" required>
@@ -13,7 +26,7 @@
     <label for="layer_name">Layer Name:</label>
     <input type="text" name="layer_name" id="layer_name" required>
     <br><br>
-    <label for="value_dim">Value Dimension:</label>
+    <label for="value_dim">Value Variable:</label>
     <input type="text" name="value_dim" id="value_dim" required>
     <br><br>
     <label for="time_dim">Time Dimension:</label>
@@ -41,32 +54,64 @@
         {% endfor %}
     </select>
     <br><br>
-    <button type="submit">Create Layer</button>
+    <input type="checkbox" name="add_to_table" id="add_to_table" value="true">
+    <label for="add_to_table">Add data to existing layer</label>
+    <br><br>
+    <button type="submit" id="createLayerBtn">Create Layer</button>
 </form>
-<a href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
+<div id="progress" style="margin-bottom:20px;color:blue;"></div>
 <script>
+let pollingInterval = null;
+
+function pollProgress(processId) {
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(function() {
+        fetch('/admin/progress_messages?process_id=' + encodeURIComponent(processId))
+            .then(response => response.json())
+            .then(data => {
+                let progressDiv = document.getElementById('progress');
+                progressDiv.innerText = data.messages.join('\n');
+                progressDiv.scrollTop = progressDiv.scrollHeight;
+                // Stop polling if process is finished
+                if (data.messages.length > 0 && (
+                    data.messages[data.messages.length-1].includes("Layer creation completed.") ||
+                    data.messages[data.messages.length-1].includes("Layer creation failed")
+                )) {
+                    clearInterval(pollingInterval);
+                    document.getElementById('createLayerBtn').disabled = false;
+                }
+            });
+    }, 2000); // Poll every 2 seconds
+}
+
 document.getElementById('layerForm').onsubmit = function(e) {
     e.preventDefault();
+    var createBtn = document.getElementById('createLayerBtn');
+    createBtn.disabled = true;
     document.getElementById('progress').innerText = "Starting layer creation...";
     const formData = new FormData(e.target);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "{{ url_for('create_layer_stream') }}", true);
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-    let lastIndex = 0;
-    xhr.onprogress = function() {
-        const newText = xhr.responseText.substring(lastIndex);
-        lastIndex = xhr.responseText.length;
-        const lines = newText.split('\n');
-        for (let line of lines) {
-            if (line.startsWith('data: ')) {
-                document.getElementById('progress').innerText = line.substring(6);
-            }
-        }
-    };
-    xhr.onload = function() {
-        document.getElementById('progress').innerText += "\nDone.";
-    };
-    xhr.send(formData);
+    if (!document.getElementById('add_to_table').checked) {
+        formData.set('add_to_table', 'false');
+    }
+    // Get processId for polling
+    const layerName = document.getElementById('layer_name').value;
+    const processId = 'layer_creation:' + layerName;
+    // Start polling for progress
+    pollProgress(processId);
+    // Start the background process
+    fetch("{{ url_for('create_layer_stream') }}", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Optionally handle immediate response
+    })
+    .catch(() => {
+        document.getElementById('progress').innerText += "\nError starting layer creation.";
+        createBtn.disabled = false;
+        if (pollingInterval) clearInterval(pollingInterval);
+    });
 };
 </script>
 {% endblock %}

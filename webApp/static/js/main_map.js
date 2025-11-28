@@ -1265,7 +1265,7 @@ class DownloadWidget extends Widget {
         this.downloadBtn.disabled = true;
 
         // Prepare POST request to initiate export 
-        fetch(`/export_table/${table_name}`, {
+        fetch(`/admin/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1275,44 +1275,33 @@ class DownloadWidget extends Widget {
                 output_filename: fileName
             })
         })
-        .then(response => {
-            if (response.ok && response.headers.get('content-type').includes('text/event-stream')) {
-                // Use SSE to receive progress messages
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                const readStream = () => {
-                    reader.read().then(({ done, value }) => {
-                        if (done) {
-                            this.downloadBtn.disabled = false; // Re-enable button when finished
-                            return;
-                        }
-                        buffer += decoder.decode(value, { stream: true });
-                        let lines = buffer.split('\n\n');
-                        buffer = lines.pop(); // Save incomplete line
-                        lines.forEach(line => {
-                            if (line.startsWith('data: ')) {
-                                const msg = line.replace('data: ', '').trim();
-                                const div = document.createElement('div');
-                                div.textContent = msg;
-                                this.progressDiv.appendChild(div);
+        .then(response => response.json())
+        .then(result => {
+            if (result.status === 'started' && result.process_id) {
+                // Start polling for progress messages
+                let pollingInterval = setInterval(() => {
+                    fetch('/admin/progress_messages?process_id=' + encodeURIComponent(result.process_id))
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.messages.length > 0) {
+                                this.progressDiv.style.display = "block";
+                                this.progressDiv.innerText = data.messages.join('\n');
                                 this.progressDiv.scrollTop = this.progressDiv.scrollHeight;
+                            } else {
+                                this.progressDiv.style.display = "none";
+                                clearInterval(pollingInterval);
+                                this.downloadBtn.disabled = false;
                             }
                         });
-                        readStream();
-                    });
-                };
-                readStream();
+                }, 2000); // Poll every 2 seconds
             } else {
-                response.json().then(result => {
-                    this.progressDiv.innerHTML = `<div>Error: ${result.error || 'Unexpected response'}</div>`;
-                    this.downloadBtn.disabled = false; // Re-enable button on error
-                });
+                this.progressDiv.innerHTML = `<div>Error: ${result.message || 'Unexpected response'}</div>`;
+                this.downloadBtn.disabled = false;
             }
         })
         .catch(error => {
             this.progressDiv.innerHTML = `<div>Error: ${error}</div>`;
-            this.downloadBtn.disabled = false; // Re-enable button on error
+            this.downloadBtn.disabled = false;
         });
     }
 

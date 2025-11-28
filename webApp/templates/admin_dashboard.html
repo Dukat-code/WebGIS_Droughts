@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Welcome,</h1>
+    <h1>Welcome, {{ user_name }}</h1>
     <div class="admin-menu">
         <ul>
             <li><a href="{{ url_for('admin_users') }}">Manage Users</a></li>
@@ -24,6 +24,7 @@
             <li><a href="{{ url_for('admin_upload') }}">Upload File</a></li>
             <li><a href="{{ url_for('admin_download') }}">Download File</a></li>
             <li><a href="{{ url_for('admin_config') }}">Edit Configuration</a></li>
+            <li><a href="{{ url_for('admin_dashboard') }}">Back to dashboard</a></li>
             <li><a href="{{ url_for('main_map') }}">Back to map</a></li>
             <li><a href="{{ url_for('admin_logout') }}">Logout</a></li>
         </ul>
