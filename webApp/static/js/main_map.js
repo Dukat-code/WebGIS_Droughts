@@ -13,6 +13,7 @@ class Map {
 
     constructor(cfg, name) {
         // Initialize map
+        console.log(cfg);
         this.localhost = cfg.localhost;
         this.layers = {};
         this.activeDate = null;
@@ -55,8 +56,9 @@ class Map {
                 cfg.layers[layerName].opacity,
                 cfg.layers[layerName].tms === 'true',
                 cfg.layers[layerName].time === 'true',
-                cfg.layers[layerName].time_bounds || {},
-                cfg.layers[layerName].dateformat || 'yyyy-mm-dd'
+                cfg.layers[layerName].min_date,
+                cfg.layers[layerName].max_date,
+                cfg.layers[layerName].date_format || 'yyyy-mm'
             )
         }
 
@@ -224,10 +226,11 @@ class Map {
      * @param {*} opacity 
      * @param {*} tms 
      * @param {*} time 
-     * @param {*} timeBounds 
+     * @param {*} initDate
+     * @param {*} endDate
      * @param {*} dateFormat 
      */
-    addLayer(name, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, timeBounds, dateFormat='yyyy-mm-dd') {
+    addLayer(name, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, initDate, endDate, dateFormat='yyyy-mm') {
         let layer;
         if(topic==='facilities'){
             // Special case for facilities: fetch GeoJSON and add as point layer
@@ -242,10 +245,11 @@ class Map {
         layer.info = info || '';
         layer.legend = legend || '';
         layer.timeseries = time;
-        layer.timeBounds = timeBounds || {};
         layer.topic = topic || '';
         layer.getFeatureUrl = `${getFeatureUrl}/${name}`;
         if(time){
+            layer.minDate = initDate || null;
+            layer.maxDate = endDate || null;
             layer.dateFormat = dateFormat
         }
 
@@ -370,7 +374,6 @@ class Map {
         fetch(`${url}/${lat}/${lon}/${date}`)
             .then(response => response.json())
             .then(data => {
-                console.log(data);
                 // Display the feature info (customize as needed)
                 let info = `Info for ${activeLayer} at (${lat}, ${lon}) on ${date}:\n`;
                 // Extract the value from the response (adjust as needed)
@@ -488,7 +491,6 @@ class LayerWidget extends Widget {
         this.parent = options.parent;
         this.timeline = options.timeline;
         this.layersByTopic = layersByTopic; // { topic: { layerName: {active, opacity, layerObj} } }
-        console.log(this.layersByTopic);
         this.topics = Object.keys(layersByTopic);
         this.selectedTopic = this.topics[0];
         this.renderTopicDropdown();
@@ -686,7 +688,6 @@ class LayerWidget extends Widget {
     }
 
     getLayerInfo(layerName) {
-        console.log(`Fetching info for layer: ${layerName}`);
         fetch(`/get_product_info/${layerName}`)
         .then(response => response.json())
         .then(data => {
@@ -849,18 +850,64 @@ class TimelineWidget extends Widget {
         this.updateElements();
     }
 
+    generateAllDates(minDate, maxDate, dateFormat) {
+        console.log(`Generating all dates from ${minDate} to ${maxDate} with format ${dateFormat}`);
+        const result = [];
+        let min = minDate.split('-').map(Number);
+        let max = maxDate.split('-').map(Number);
+
+        if (dateFormat === "yyyy-mm") {
+            let year = min[0];
+            let month = min[1];
+            let endYear = max[0];
+            let endMonth = max[1];
+            while (year < endYear || (year === endYear && month <= endMonth)) {
+                let dateStr = `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-01`;
+                if (dateStr >= minDate && dateStr <= maxDate) {
+                    result.push(dateStr);
+                }
+                month++;
+                if (month > 12) {
+                    month = 1;
+                    year++;
+                }
+            }
+        } else if (dateFormat === "yyyy-mm-dd") {
+            let year = min[0];
+            let month = min[1];
+            let endYear = max[0];
+            let endMonth = max[1];
+            while (year < endYear || (year === endYear && month <= endMonth)) {
+                [1, 11, 21].forEach(day => {
+                    let dateStr = `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                    if (dateStr >= minDate && dateStr <= maxDate) {
+                        result.push(dateStr);
+                    }
+                });
+                month++;
+                if (month > 12) {
+                    month = 1;
+                    year++;
+                }
+            }
+        }
+        console.log('Generated dates:', result);
+        return result;
+    }
+
     setActiveLayer(layer) {
+        console.log('Setting active layer in timeline:', layer);
         this.activeLayer = layer;
         if (layer === null) {
             this.hide();
         } else {
             this.setDateFormat(layer.dateFormat);
             // Set dateInit and dateEnd from layer.timeBounds if available
-            if (layer.timeBounds && layer.timeBounds.min_date && layer.timeBounds.max_date) {
-                this.dateInit = layer.timeBounds.min_date;
-                this.dateEnd = layer.timeBounds.max_date;
+            if (layer.minDate && layer.maxDate) {
+                this.dateInit = layer.minDate;
+                this.dateEnd = layer.maxDate;
                 // Take allDates from timeBounds.all_dates
-                this.allDates = Array.isArray(layer.timeBounds.all_dates) ? layer.timeBounds.all_dates : [];
+                this.allDates = this.generateAllDates(layer.minDate, layer.maxDate, layer.dateFormat);
             } else {
                 // Fallback: use first and last date from allDates array
                 this.dateInit = this.allDates.length > 0 ? this.allDates[0] : null;
@@ -928,7 +975,7 @@ class TimelineWidget extends Widget {
         if (!this.dateInit || !this.dateEnd) return;
         let fromVal = this.dateFromPicker.value;
         let toVal = this.dateToPicker.value;
-        let allDates = this.activeLayer && this.activeLayer.allDates ? this.activeLayer.allDates : this.allDates;
+        let allDates = this.allDates;
         this.dates = allDates.filter(d => d >= fromVal && d <= toVal);
         // Update slider max
         this.slider.max = this.dates.length > 0 ? this.dates.length - 1 : 0;
@@ -1306,11 +1353,10 @@ class DownloadWidget extends Widget {
     }
 
     updateDatePickers() {
-        if (!this.activeLayer || !this.activeLayer.timeBounds) return;
-        const bounds = this.activeLayer.timeBounds;
-        // Expecting bounds: {min_date, max_date}
-        const minDate = bounds.min_date;
-        const maxDate = bounds.max_date;
+        console.log('Updating date pickers for download widget with active layer:', this.activeLayer);
+        if (!this.activeLayer || !this.activeLayer.minDate || !this.activeLayer.maxDate) return;
+        const minDate = this.activeLayer.minDate;
+        const maxDate = this.activeLayer.maxDate;
 
         this.fromDateInput.min = minDate;
         this.fromDateInput.max = maxDate;
