@@ -691,32 +691,22 @@ class LayerWidget extends Widget {
         fetch(`/get_product_info/${layerName}`)
         .then(response => response.json())
         .then(data => {
-            // Build modal content with the requested fields
-            const metadataLink = data?.metadata ? data.metadata : 
-                                `${this.parent.localhost}/get_metadata/${layerName}`;
-            const modalContent = `
-                <div>
-                    <strong>Code:</strong> ${data.code || ''}<br>
-                    <strong>Name:</strong> ${data.name || ''}<br>
-                    <br>
-                    ${data.info || ''}
-                    <br>
-                    <strong>Frequency:</strong> ${data.frequency || ''}<br>
-                    <strong>Start Day:</strong> ${data.startDay || ''}<br>
-                    <strong>End Day:</strong> ${data.endDay || ''}<br>
-                    <br>
-                    <strong> ${data.organisation?.name || ''} </strong><br>
-                    <strong>Organisation Contact:</strong> ${data.organisation?.contact || ''}<br>
-                    <strong>Organisation Email:</strong> ${data.organisation?.email || ''}<br>
-                    <br>
-                    <strong>License:</strong> ${data.license || ''}<br>
-                    ${data.citationStatement || ''}
-                    <br>
-                    <br>
-                    <br>
-                    <a href="${metadataLink}" target="_blank">Metadata</a>
-                </div>
-            `;
+            // Build modal content with all key-value pairs
+            let modalContent = '<div>';
+            for (const key in data) {
+                if (typeof data[key] === 'object' && data[key] !== null) {
+                    modalContent += `<strong>${key}:</strong><br>`;
+                    for (const subKey in data[key]) {
+                        modalContent += `&nbsp;&nbsp;${subKey}: ${data[key][subKey]}<br>`;
+                    }
+                } else {
+                    modalContent += `<strong>${key}:</strong> ${data[key]}<br>`;
+                }
+            }
+            // Metadata link
+            const metadataLink = data?.metadata ? data.metadata : `${this.parent.localhost}/get_metadata/${layerName}`;
+            modalContent += `<br><a href="${metadataLink}" target="_blank">Metadata</a></div>`;
+
             const modal = new ModalWidget({
                 title: `Layer Info: ${layerName}`,
                 content: modalContent
