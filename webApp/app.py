@@ -936,16 +936,17 @@ def get_metadata(layer):
 
 @app.route('/')
 def main_map():
+    print("starting")
     map_config = get_key_config('map')
     layers = {}
     layer_names = map_config["layers"].split(',')
+    print("layer_names:", layer_names)
+    
     for layer_name in layer_names:
         layer = get_key_config(layer_name)
-        conn = get_db_connection()
-        time_bounds = get_layer_time_bounds(layer_name, conn)
-        close_db_connection(conn)
-        layer['time_bounds'] = time_bounds
         layers[layer_name] = layer
+    
+    print("loaded layers")
     config = load_config()
     base_url = config['base'].get('base_url', '')
     map_config['layers'] = layers
