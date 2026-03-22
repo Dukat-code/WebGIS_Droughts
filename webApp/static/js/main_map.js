@@ -1239,6 +1239,36 @@ class DownloadWidget extends Widget {
         fileNameDiv.appendChild(fileNameLabel);
         fileNameDiv.appendChild(this.fileNameInput);
 
+        // Format dropdown
+        const formatDiv = document.createElement('div');
+        formatDiv.className = 'download-format-controls';
+
+        const formatLabel = document.createElement('label');
+        formatLabel.htmlFor = 'downloadFormat';
+        formatLabel.textContent = 'Format: ';
+
+        this.formatSelect = document.createElement('select');
+        this.formatSelect.id = 'downloadFormat';
+        this.formatSelect.className = 'download-format-select';
+
+        const ncOption = document.createElement('option');
+        ncOption.value = '.nc';
+        ncOption.textContent = '.nc';
+        this.formatSelect.appendChild(ncOption);
+
+        const tifOption = document.createElement('option');
+        tifOption.value = '.tif';
+        tifOption.textContent = '.tif';
+        this.formatSelect.appendChild(tifOption);
+
+        this.formatSelect.value = '.nc'; // default
+
+        formatDiv.appendChild(formatLabel);
+        formatDiv.appendChild(this.formatSelect);
+
+        // Add formatDiv after fileNameDiv
+        fileNameDiv.appendChild(formatDiv);
+
         bboxDiv.appendChild(bboxLeft);
         //bboxDiv.appendChild(fileNameDiv);
         bboxDiv.appendChild(this.downloadBtn);
@@ -1284,8 +1314,7 @@ class DownloadWidget extends Widget {
         }
         // Default file name if not provided
         let fileName = '../fileExchange/downloads/';
-        fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}.nc`;
-        if (!fileName.endsWith('.nc')) fileName += '.nc';
+        fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}`;
         // Get bounding box coordinates if available
         const bbox = this.bboxCoords
             ? {
@@ -1302,6 +1331,8 @@ class DownloadWidget extends Widget {
         this.downloadBtn.disabled = true;
 
         // Prepare POST request to initiate export 
+        const format = this.formatSelect.value;
+        console.log(format);
         fetch(`/admin/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1309,7 +1340,8 @@ class DownloadWidget extends Widget {
                 init_date: init_date,
                 end_date: end_date,
                 bbox: bbox,
-                output_filename: fileName
+                output_filename: fileName,
+                format: format
             })
         })
         .then(response => response.json())
@@ -1325,12 +1357,12 @@ class DownloadWidget extends Widget {
                                 this.progressDiv.innerText = data.messages.join('\n');
                                 this.progressDiv.scrollTop = this.progressDiv.scrollHeight;
                             } else {
-                                this.progressDiv.style.display = "none";
+                                //this.progressDiv.style.display = "none";
                                 clearInterval(pollingInterval);
                                 this.downloadBtn.disabled = false;
                             }
                         });
-                }, 2000); // Poll every 2 seconds
+                }, 200); // Poll every 0.2 seconds
             } else {
                 this.progressDiv.innerHTML = `<div>Error: ${result.message || 'Unexpected response'}</div>`;
                 this.downloadBtn.disabled = false;

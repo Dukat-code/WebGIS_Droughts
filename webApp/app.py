@@ -13,10 +13,11 @@ from src.get_layer_info import (
     get_feature_data, get_layer_time_bounds, get_meteo_stations_geojson, get_meteostation_month_data,
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
     get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules,
-    get_feature_data_from_lat_lon_dekad
+    get_feature_data_from_lat_lon_dekad,netcdf_to_geotiff, export_table_to_geotiff
 )
 from src.import_meteo_csv import import_meteo_csv_stream   
 from src.create_layer import read_nc_file_stream
+from src.create_layer_tif import read_geotiff_file_stream, get_existing_grid_table
 from src.seeding import seed_layer_tiles
 
 ##############################################################################
@@ -569,14 +570,14 @@ def import_meteo_stations_stream():
 def admin_layer_creation():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
-    nc_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.nc')]
+    layer_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.nc') or f.lower().endswith('.tif') or f.lower().endswith('.tiff')]
     json_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.json')]
     xml_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.xml')]
     message = None
 
     return render_template(
         'admin_layer_creation.html',
-        nc_files=nc_files,
+        layer_files=layer_files,
         json_files=json_files,
         xml_files=xml_files,
         message=message
@@ -612,15 +613,6 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
         action = "addition" if add_to_table else "creation"
         if success:
             msg_action = "edited" if add_to_table else "created"
-            try:
-                os.remove(nc_file)
-                msg = f"Layer {msg_action} and file '{os.path.basename(nc_file)}' deleted."
-                print(msg)
-                save_progress_message(user_name, process_id, msg)
-            except Exception as e:
-                msg = f"Layer {msg_action} but could not delete file: {e}"
-                print(msg)
-                save_progress_message(user_name, process_id, msg)
             # Move product info JSON
             if product_json:
                 try:
@@ -671,16 +663,22 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
         msg = f"Background process error: {e}"
         print(msg)
         save_progress_message(user_name, process_id, msg)
+    finally:
+        # Always write END at the end of the process
+        try:
+            save_progress_message(user_name, process_id, "**END**")
+        except Exception as e:
+            print(f"Could not write END message: {e}")
 
 @app.route('/admin/create_layer_stream', methods=['POST'])
 @admin_required
 def create_layer_stream():
-    nc_filename = request.form.get('nc_filename')
+    layer_file = request.form.get('layer_file')
     layer_name = request.form.get('layer_name')
-    value_dim = request.form.get('value_dim')
     time_dim = request.form.get('time_dim')
     lon_dim = request.form.get('lon_dim')
     lat_dim = request.form.get('lat_dim')
+    value_dim = request.form.get('value_dim')
     product_json_name = request.form.get('product_json')
     layer_xml_name = request.form.get('layer_xml')
     add_to_table = request.form.get('add_to_table', 'false') == 'true'
@@ -688,7 +686,7 @@ def create_layer_stream():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
     metadata_folder = os.path.join(project_root, 'metadata')
-    nc_file = os.path.join(upload_folder, nc_filename)
+    nc_file = os.path.join(upload_folder, layer_file)
     product_json = os.path.join(upload_folder, product_json_name) if product_json_name else None
     layer_xml = os.path.join(upload_folder, layer_xml_name) if layer_xml_name else None
     config_path = os.path.join(project_root, 'config', 'config.ini')
@@ -703,6 +701,75 @@ def create_layer_stream():
 
     # Immediately respond to the client
     return jsonify({'status': 'started', 'message': 'Layer creation started in background. You will receive an alert when it finishes.'})
+
+####
+#### Background layer creation process from GeoTIFF file
+#### 
+
+def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_table, user_name):
+    process_id = f"layer_creation:{layer_name}"
+    clear_progress_messages(user_name, process_id)
+    error_message = None
+    success = True
+    try:
+        from src.create_layer_tif import read_geotiff_file_stream
+        for message in read_geotiff_file_stream(
+            tif_file,
+            layer_name,
+            config_path=config_path,
+            add_to_table=add_to_table
+        ):
+            print(message)
+            save_progress_message(user_name, process_id, message)
+            if message.startswith("Error"):
+                error_message = message
+                success = False
+        msg = f"Layer creation from GeoTIFF {'finished successfully.' if success else 'failed: ' + str(error_message)}"
+        save_progress_message(user_name, process_id, msg)
+        alert_text = msg
+    except Exception as e:
+        alert_text = f"Background process error: {e}"
+        save_progress_message(user_name, process_id, alert_text)
+    finally:
+        # Always write END at the end of the process
+        try:
+            save_progress_message(user_name, process_id, "**END**")
+        except Exception as e:
+            print(f"Could not write END message: {e}")
+    # Send alert to user
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+            (user_name, alert_text[:300])
+        )
+        conn.commit()
+        cur.close()
+        close_db_connection(conn)
+        clear_progress_messages(user_name, process_id)
+    except Exception as e:
+        print(f"Could not send alert: {e}")    
+
+@app.route('/admin/create_layer_tif_stream', methods=['POST'])
+@admin_required
+def create_layer_tif_stream():
+    layer_file = request.form.get('layer_file')
+    layer_name = request.form.get('layer_name')
+    add_to_table = request.form.get('add_to_table', 'false') == 'true'
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    tif_file = os.path.join(upload_folder, layer_file)
+    config_path = os.path.join(project_root, 'config', 'config.ini')
+    user_name = session.get('admin_username')
+
+    thread = threading.Thread(
+        target=layer_creation_tif_background,
+        args=(tif_file, layer_name, config_path, add_to_table, user_name)
+    )
+    thread.start()
+
+    return jsonify({'status': 'started', 'message': 'Layer creation from GeoTIFF started in background. You will receive an alert when it finishes.'})
 
 ############################################################
 # Tile seeding
@@ -725,14 +792,30 @@ def admin_seed_layer():
 ############################################################
 # Export data to NetCDF
 ############################################################
-def export_table_background(user_name, table_name, init_date, end_date, bbox, output_filename):
+def export_table_background(user_name, table_name, init_date, end_date, bbox, output_filename, format):
     process_id = f"export_table:{table_name}"
     clear_progress_messages(user_name, process_id)
     try:
         conn = get_db_connection()
-        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
-            print(message)
-            save_progress_message(user_name, process_id, message)
+        grid_name = get_existing_grid_table(conn,table_name)
+        print(f"Using grid '{grid_name}' for export.")
+        if format == ".nc":
+            msg = f"Exporting to NetCDF format."
+            print(msg) 
+            save_progress_message(user_name, process_id, msg)
+            for message in export_table_to_netcdf(conn, table_name, init_date, end_date, bbox, output_filename):
+                print(message)
+                save_progress_message(user_name, process_id, message)
+        elif format == ".tif":    
+            msg = f"Exporting to GeoTIFF format "
+            print(msg)
+            save_progress_message(user_name, process_id, msg)
+            for message in export_table_to_geotiff(conn, table_name, init_date, end_date, bbox, output_filename):
+                print(message)
+                save_progress_message(user_name, process_id, message)
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+        
         close_db_connection(conn)
         msg = f"Export finished. File: {output_filename}"
         print(msg)
@@ -768,12 +851,18 @@ def export_table(table_name):
     bbox = request.json.get("bbox") 
     if bbox == {}:
         bbox = None
-    output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
+    format = request.json.get("format") or ".nc"
+
+    if request.json.get("output_filename") is None:
+        output_filename = f"{table_name}_{init_date}_{end_date}{format}"
+    else:
+        output_filename = f"{request.json.get('output_filename')}{format}"
+
     user_name = session.get('admin_username')
 
     thread = threading.Thread(
         target=export_table_background,
-        args=(user_name, table_name, init_date, end_date, bbox, output_filename)
+        args=(user_name, table_name, init_date, end_date, bbox, output_filename, format)
     )
     thread.start()
 
