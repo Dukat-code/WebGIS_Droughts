@@ -300,6 +300,7 @@ input[type="range"]::-ms-tooltip {
     font-size: 0.95em;
     padding: 2px 8px;
     cursor: pointer;
+    margin: 5px;
 }
 .legend-toggle-btn:hover {
     background: #1a2733;

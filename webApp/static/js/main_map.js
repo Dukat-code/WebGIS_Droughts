@@ -585,6 +585,20 @@ class LayerWidget extends Widget {
             label.textContent = layerName;
             label.style.marginRight = '8px';
 
+            // Timeline toggle
+            const timelineToggle = document.createElement('button');
+            timelineToggle.textContent = 'Timeline';
+            timelineToggle.className = 'legend-toggle-btn';
+
+            timelineToggle.onclick = () => {
+                if(this.timeline.activeLayer !== layer.layerObj){
+                    if (layer.layerObj.timeseries) { 
+                        this.timeline.setActiveLayer(layer.layerObj);
+                    }
+                } else {
+                    this.timeline.setActiveLayer(null);
+                }
+            };
             // Legend toggle button
             const legendToggle = document.createElement('button');
             legendToggle.textContent = 'Legend';
@@ -636,6 +650,9 @@ class LayerWidget extends Widget {
             const legendToggleWrapper = document.createElement('div');
             legendToggleWrapper.appendChild(legendToggle);
             legendToggleWrapper.style.marginLeft = "28px";
+            if(layer.layerObj.timeseries){
+                legendToggleWrapper.appendChild(timelineToggle);
+            }
 
             // Second line: slider
             const line2 = document.createElement('div');
@@ -791,8 +808,17 @@ class TimelineWidget extends Widget {
         this.dateFromPicker = null;
         this.dateToPicker = null;
 
+
+        //close button in header
+        this.header.innerHTML = `<span>${this.title}</span><span class="widget-toggle">x</span>`;
+        this.header.onclick = () => this.close();
+
         this.renderTimeline();
         this.setWidgetStyle();
+    }
+
+    close() {
+        this.setActiveLayer(null);
     }
 
     setWidgetStyle() {
