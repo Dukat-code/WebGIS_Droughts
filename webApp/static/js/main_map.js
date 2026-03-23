@@ -13,7 +13,6 @@ class Map {
 
     constructor(cfg, name) {
         // Initialize map
-        console.log(cfg);
         this.localhost = cfg.localhost;
         this.layers = {};
         this.activeDate = null;
@@ -910,7 +909,6 @@ class TimelineWidget extends Widget {
     }
 
     generateAllDates(minDate, maxDate, dateFormat) {
-        console.log(`Generating all dates from ${minDate} to ${maxDate} with format ${dateFormat}`);
         const result = [];
         let min = minDate.split('-').map(Number);
         let max = maxDate.split('-').map(Number);
@@ -950,12 +948,10 @@ class TimelineWidget extends Widget {
                 }
             }
         }
-        console.log('Generated dates:', result);
         return result;
     }
 
     setActiveLayer(layer) {
-        console.log('Setting active layer in timeline:', layer);
         this.activeLayer = layer;
         if (layer === null) {
             this.hide();
@@ -1401,7 +1397,6 @@ class DownloadWidget extends Widget {
 
         // Prepare POST request to initiate export 
         const format = this.formatSelect.value;
-        console.log(format);
         fetch(`/admin/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1444,7 +1439,6 @@ class DownloadWidget extends Widget {
     }
 
     updateDatePickers() {
-        console.log('Updating date pickers for download widget with active layer:', this.activeLayer);
         if (!this.activeLayer || !this.activeLayer.minDate || !this.activeLayer.maxDate) return;
         const minDate = this.activeLayer.minDate;
         const maxDate = this.activeLayer.maxDate;
