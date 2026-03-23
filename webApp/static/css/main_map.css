@@ -527,13 +527,26 @@ input[type="range"]::-ms-tooltip {
     background: transparent;
 }
 
+#custom-zoom-in-btn{
+    margin: 0px;
+    border-radius: 5px 5px 0px 0px;
+    border-bottom-color: white !important;
+    border-bottom-width: 1px !important;
+    border-bottom-style: solid !important;
+}
+
+#custom-zoom-out-btn{
+    margin: 0px;
+    border-radius: 0px 0px 5px 5px;
+}
+
 #custom-zoom-in-btn, #custom-zoom-out-btn {
     height: 35px;
     width: 40px;
-    background: #2b3e50;
+    background: #888;
     color: #fff;
     border: none;
-    border-radius: 4px;
+    /*border-radius: 4px;*/
     font-size: 1.2em;
     padding: 0;
     cursor: pointer;
@@ -541,9 +554,9 @@ input[type="range"]::-ms-tooltip {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 2px;
+    /*margin-bottom: 2px;*/
     transition: background 0.2s;
 }
-#custom-zoom-in-btn:active, #custom-zoom-out-btn:active {
+#custom-zoom-in-btn:hover, #custom-zoom-out-btn:hover {
     background: #2b3e50;
 }
