@@ -18,7 +18,7 @@ class Map {
         this.layers = {};
         this.activeDate = null;
         this.map = L.map(name, {
-            zoomControl: true,
+            zoomControl: false,
             scrollWheelZoom: true,
             dragging: true,
             doubleClickZoom: true,
@@ -28,10 +28,14 @@ class Map {
             minZoom: cfg.min_zoom,   // minimum zoom level
             maxZoom: cfg.max_zoom    // maximum zoom level
         }).setView([cfg.center_lat, cfg.center_lon], cfg.initial_zoom);
+        
+        // Custom zoom control (styled like info/download widgets, top right)
+        this.addCustomZoomControl();
 
         // Base map
         const tiles = L.tileLayer(cfg.base_map_url, {
         }).addTo(this.map);
+
 
         // Time slider for time series layers
         const availableDates = [];
@@ -89,6 +93,45 @@ class Map {
         // Download control
         this.setDownloadControl();
 
+    }
+
+    /**
+     * Add a custom zoom control styled like info/download widgets, top right above info button
+     */
+    addCustomZoomControl() {
+        const zoomControl = L.control({ position: 'topright' });
+        zoomControl.onAdd = (map) => {
+            const container = L.DomUtil.create('div', 'custom-zoom-control');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            container.style.marginBottom = '18px';
+            // Zoom in button
+            const zoomInBtn = document.createElement('button');
+            zoomInBtn.id = 'custom-zoom-in-btn';
+            zoomInBtn.innerHTML = '+';
+            zoomInBtn.title = 'Zoom in';
+            // Zoom out button
+            const zoomOutBtn = document.createElement('button');
+            zoomOutBtn.id = 'custom-zoom-out-btn';
+            zoomOutBtn.innerHTML = '-';
+            zoomOutBtn.title = 'Zoom out';
+            // Add event listeners
+            zoomInBtn.onclick = (e) => {
+                e.preventDefault();
+                this.map.zoomIn();
+            };
+            zoomOutBtn.onclick = (e) => {
+                e.preventDefault();
+                this.map.zoomOut();
+            };
+            // Prevent map drag when clicking
+            L.DomEvent.disableClickPropagation(container);
+            container.appendChild(zoomInBtn);
+            container.appendChild(zoomOutBtn);
+            return container;
+        };
+        zoomControl.addTo(this.map);
     }
 
     /**

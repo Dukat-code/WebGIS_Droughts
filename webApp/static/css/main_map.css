@@ -526,3 +526,24 @@ input[type="range"]::-ms-tooltip {
     padding: 0;
     background: transparent;
 }
+
+#custom-zoom-in-btn, #custom-zoom-out-btn {
+    height: 35px;
+    width: 40px;
+    background: #2b3e50;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 1.2em;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(44,62,80,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 2px;
+    transition: background 0.2s;
+}
+#custom-zoom-in-btn:active, #custom-zoom-out-btn:active {
+    background: #2b3e50;
+}
