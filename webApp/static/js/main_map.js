@@ -662,7 +662,20 @@ class LayerWidget extends Widget {
             line2.style.marginLeft = '28px';
 
             const opacityLabel = document.createElement('span');
-            opacityLabel.textContent = 'Opacity:';
+            opacityLabel.textContent = 'Opacity:   ';
+
+            line2.appendChild(opacityLabel);
+
+            // Second line: slider
+            const line3 = document.createElement('div');
+            line3.style.display = 'flex';
+            line3.style.alignItems = 'center';
+            line3.style.gap = '8px';
+            line3.style.marginTop = '4px';
+            line3.style.marginLeft = '28px';
+
+            const opacityLabel2 = document.createElement('span');
+            opacityLabel2.textContent = '0%  ';
 
             const slider = document.createElement('input');
             slider.type = 'range';
@@ -679,15 +692,21 @@ class LayerWidget extends Widget {
                 }
             };
 
-            line2.appendChild(opacityLabel);
-            line2.appendChild(slider);
+            const opacityLabel3 = document.createElement('span');
+            opacityLabel3.textContent = ' 100%';
+
+            
+            line3.appendChild(opacityLabel2);
+            line3.appendChild(slider);
+            line3.appendChild(opacityLabel3);
 
             wrapper.appendChild(line1);              // First line: checkbox + label
-            wrapper.appendChild(line2);              // Fifth line: slider
+            wrapper.appendChild(line2);              // Second line: description + info link
+            wrapper.appendChild(line3);              // Third line: slider
             if (layer.layerObj.topic !== 'facilities') {
-                wrapper.appendChild(descWrapper);        // Second line: description + info link
-                wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
-                wrapper.appendChild(legendDiv);          // Fourth line: legend
+                wrapper.appendChild(descWrapper);        // Fourth line: description + info link
+                wrapper.appendChild(legendToggleWrapper);// Fifth line: legend toggle button
+                wrapper.appendChild(legendDiv);          // Sixth line: legend
             }
 
             this.contentDiv.appendChild(wrapper);
