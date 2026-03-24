@@ -89,8 +89,9 @@ function getData(lat,lon,yearFrom,monthFrom,yearTo,monthTo,layer,variable){
         let stdPlus = std.map((v,i)=>parseFloat(avg[i])+parseFloat(v));
         let stdMinus = std.map((v,i)=>parseFloat(avg[i])-parseFloat(v)).map(v=>v<0?0:v);
         draw_chart(data,avg,stdPlus,stdMinus,labels);
+        const fileName = layer+"_lon_"+lon+"_lat_"+lat+"_"+yearFrom+"-"+monthFrom+"_to_"+yearTo+"-"+monthTo+".csv";
         document.getElementById("downloadCSVBtn").onclick = () => {
-            downloadCSV(r);
+            downloadCSV(r,fileName);
         };
     })
 }
@@ -147,7 +148,7 @@ function draw_chart(data,avg,stdPlus,stdMinus,labels)
     });
 }
 
-function downloadCSV(data) {
+function downloadCSV(data,fileName) {
     let csvContent = "Year,Month,Data\n";
     for (let i = 0; i < data.years.length; i++) {
         for (let j = 0; j < data.sample[i].length; j++) {
@@ -159,7 +160,7 @@ function downloadCSV(data) {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = "climate_data.csv";
+    a.download = fileName?fileName:'data.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

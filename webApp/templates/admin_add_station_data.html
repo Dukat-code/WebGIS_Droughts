@@ -26,12 +26,12 @@ document.addEventListener("DOMContentLoaded", function() {
                         progressDiv.innerText = data.messages.join('\n');
                         progressDiv.scrollTop = progressDiv.scrollHeight;
                     } else {
-                        progressDiv.innerText = "";
-                        clearInterval(pollingInterval);
+                        //progressDiv.innerText = "";
+                        //clearInterval(pollingInterval);
                         document.getElementById('importBtn').disabled = false;
                     }
                 });
-        }, 2000);
+        }, 50);
     }
 
     const importForm = document.getElementById('importForm');

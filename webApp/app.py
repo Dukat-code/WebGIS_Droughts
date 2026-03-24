@@ -19,6 +19,7 @@ from src.import_meteo_csv import import_meteo_csv_stream
 from src.create_layer import read_nc_file_stream
 from src.create_layer_tif import read_geotiff_file_stream, get_existing_grid_table
 from src.seeding import seed_layer_tiles
+import time
 
 ##############################################################################
 # CONFIGURATION
@@ -530,6 +531,7 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
             print(f"Could not send alert: {e}")
         # Final progress message and cleanup
         save_progress_message(user_name, process_id, "process finished")
+        time.sleep(3)  # Wait 3 seconds before clearing messages to ensure frontend has time to fetch final messages
         clear_progress_messages(user_name, process_id)
     except Exception as e:
         msg = f"Background process error: {e}"
@@ -656,6 +658,7 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
             cur.close()
             close_db_connection(conn)
             # Delete all progress messages for this process
+            time.sleep(3)  # Wait 3 seconds before clearing
             clear_progress_messages(user_name, process_id)
         except Exception as e:
             print(f"Could not send alert: {e}")
@@ -747,6 +750,7 @@ def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_tabl
         conn.commit()
         cur.close()
         close_db_connection(conn)
+        time.sleep(3)  # Wait 3 seconds before clearing
         clear_progress_messages(user_name, process_id)
     except Exception as e:
         print(f"Could not send alert: {e}")    
