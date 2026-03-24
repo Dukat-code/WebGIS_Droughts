@@ -18,6 +18,10 @@
                 <input type="hidden" name="delete_file" value="{{ fname }}">
                 <button type="submit" onclick="return confirm('Delete {{ fname }}?');">Delete</button>
             </form>
+            <form method="post" style="display:inline;">
+                <input type="hidden" name="download_file" value="{{ fname }}">
+                <button type="submit">Download</button>
+            </form>
         </li>
     {% else %}
         <li>No files uploaded yet.</li>

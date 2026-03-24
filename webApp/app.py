@@ -395,6 +395,16 @@ def admin_upload():
                 message = f"File '{file_to_delete}' deleted successfully."
             else:
                 message = f"File '{file_to_delete}' not found."
+        elif 'download_file' in request.form:
+            file_to_download = request.form.get('download_file')
+            filepath = os.path.join(upload_folder, file_to_download)
+            if os.path.exists(filepath):
+                with open(filepath, 'rb') as f:
+                    response = Response(f.read(), mimetype='application/octet-stream')
+                    response.headers.set('Content-Disposition', 'attachment', filename=file_to_download)
+                return response
+            else:
+                message = f"File '{file_to_download}' not found."
         elif 'file' in request.files:
             file = request.files['file']
             if file.filename == '':
