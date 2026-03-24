@@ -703,8 +703,8 @@ class LayerWidget extends Widget {
             wrapper.appendChild(line1);              // First line: checkbox + label
             wrapper.appendChild(line2);              // Second line: description + info link
             wrapper.appendChild(line3);              // Third line: slider
+            wrapper.appendChild(descWrapper);        // Fourth line: description + info link
             if (layer.layerObj.topic !== 'facilities') {
-                wrapper.appendChild(descWrapper);        // Fourth line: description + info link
                 wrapper.appendChild(legendToggleWrapper);// Fifth line: legend toggle button
                 wrapper.appendChild(legendDiv);          // Sixth line: legend
             }

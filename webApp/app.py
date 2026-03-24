@@ -448,6 +448,8 @@ def admin_add_station_data():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
     csv_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.csv')]
+    json_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.json')]
+    xml_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.xml')]
     message = None
 
     if request.method == 'POST':
@@ -466,13 +468,13 @@ def admin_add_station_data():
             except Exception as e:
                 message = f"Error importing: {e}"
 
-    return render_template('admin_add_station_data.html', csv_files=csv_files, message=message)
+    return render_template('admin_add_station_data.html', csv_files=csv_files, json_files=json_files, xml_files=xml_files, message=message)
 
 ###
 ### Background meteo station data import with progress tracking
 ###
 
-def import_meteo_stations_background(csv_file, config_path, sql_path, user_name):
+def import_meteo_stations_background(csv_file, config_path, sql_path, product_json, layer_xml, metadata_folder, user_name):
     process_id = f"import_meteostations:{os.path.basename(csv_file)}"
     clear_progress_messages(user_name, process_id)
     error_message = None
@@ -504,8 +506,36 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
             print(error_message)
             save_progress_message(user_name, process_id, error_message)
             success = False
-        # Delete CSV file if successful
         if success:
+            if product_json:
+                try:
+                    target_json = os.path.join(metadata_folder, "meteo_stations.json")
+                    if os.path.exists(target_json):
+                        os.remove(target_json)
+                    os.rename(product_json, target_json)
+                    msg = f"Product info file moved to '{target_json}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move product info file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            # Move layer metadata XML
+            if layer_xml:
+                try:
+                    target_xml = os.path.join(metadata_folder, "meteo_stations.xml")
+                    if os.path.exists(target_xml):
+                        os.remove(target_xml)
+                    os.rename(layer_xml, target_xml)
+                    msg = f"Metadata file moved to '{target_xml}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move metadata file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            # Delete CSV file if successful
+            """
             try:
                 os.remove(csv_file)
                 msg = f"Imported '{os.path.basename(csv_file)}' successfully and deleted the file."
@@ -515,6 +545,7 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
                 msg = f"Imported but could not delete CSV file: {e}"
                 print(msg)
                 save_progress_message(user_name, process_id, msg)
+            """
         # Send alert to user
         alert_text = error_message if error_message else f"Meteostation import finished successfully."
         try:
@@ -544,19 +575,28 @@ def import_meteo_stations_stream():
     csv_filename = request.form.get('csv_filename')
     if not csv_filename:
         return jsonify({'status': 'error', 'message': 'No CSV filename provided.'}), 400
+    
+    product_json_name = request.form.get('product_json')
+    layer_xml_name = request.form.get('layer_xml')
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     csv_file = os.path.join(project_root, 'fileExchange', 'uploads', csv_filename)
     config_path = os.path.join(project_root, 'config', 'config.ini')
     sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+    metadata_folder = os.path.join(project_root, 'metadata')
     user_name = session.get('admin_username')
 
     if not os.path.isfile(csv_file):
         return jsonify({'status': 'error', 'message': f"CSV file '{csv_filename}' not found."}), 400
 
+
+    # Build full paths for product_json and layer_xml if provided
+    product_json = os.path.join(project_root, 'fileExchange', 'uploads', product_json_name) if product_json_name else None
+    layer_xml = os.path.join(project_root, 'fileExchange', 'uploads', layer_xml_name) if layer_xml_name else None
+
     thread = threading.Thread(
         target=import_meteo_stations_background,
-        args=(csv_file, config_path, sql_path, user_name)
+        args=(csv_file, config_path, sql_path, product_json, layer_xml, metadata_folder, user_name)
     )
     thread.start()
 
@@ -709,7 +749,7 @@ def create_layer_stream():
 #### Background layer creation process from GeoTIFF file
 #### 
 
-def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_table, user_name):
+def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_table, user_name, metadata_folder=None, product_json=None, layer_xml=None):
     process_id = f"layer_creation:{layer_name}"
     clear_progress_messages(user_name, process_id)
     error_message = None
@@ -727,6 +767,30 @@ def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_tabl
             if message.startswith("Error"):
                 error_message = message
                 success = False
+        # Move product info JSON and layer metadata XML if provided and successful
+        if success and metadata_folder:
+            if product_json:
+                try:
+                    target_json = os.path.join(metadata_folder, f"{layer_name}.json")
+                    os.rename(product_json, target_json)
+                    msg = f"Product info file moved to '{target_json}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move product info file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            if layer_xml:
+                try:
+                    target_xml = os.path.join(metadata_folder, f"{layer_name}.xml")
+                    os.rename(layer_xml, target_xml)
+                    msg = f"Metadata file moved to '{target_xml}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move metadata file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
         msg = f"Layer creation from GeoTIFF {'finished successfully.' if success else 'failed: ' + str(error_message)}"
         save_progress_message(user_name, process_id, msg)
         alert_text = msg
@@ -761,15 +825,20 @@ def create_layer_tif_stream():
     layer_file = request.form.get('layer_file')
     layer_name = request.form.get('layer_name')
     add_to_table = request.form.get('add_to_table', 'false') == 'true'
+    product_json_name = request.form.get('product_json')
+    layer_xml_name = request.form.get('layer_xml')
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    metadata_folder = os.path.join(project_root, 'metadata')
     tif_file = os.path.join(upload_folder, layer_file)
+    product_json = os.path.join(upload_folder, product_json_name) if product_json_name else None
+    layer_xml = os.path.join(upload_folder, layer_xml_name) if layer_xml_name else None
     config_path = os.path.join(project_root, 'config', 'config.ini')
     user_name = session.get('admin_username')
 
     thread = threading.Thread(
         target=layer_creation_tif_background,
-        args=(tif_file, layer_name, config_path, add_to_table, user_name)
+        args=(tif_file, layer_name, config_path, add_to_table, user_name, metadata_folder, product_json, layer_xml)
     )
     thread.start()
 

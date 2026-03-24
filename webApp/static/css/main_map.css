@@ -243,7 +243,7 @@ input[type="range"]::-ms-tooltip {
 
 /* --- LAYER CONTROLS --- */
 .layer-control-row {
-    display: flex;
+    display: block;
     align-items: center;
     gap: 8px;
     margin-bottom: 5px;

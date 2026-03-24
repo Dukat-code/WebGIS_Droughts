@@ -9,6 +9,22 @@
         {% endfor %}
     </select>
     <br><br>
+    <label for="product_json">Product Info (.json):</label>
+    <select name="product_json" id="product_json">
+        <option value="">--None--</option>
+        {% for file in json_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br><br>
+    <label for="layer_xml">Layer Metadata (.xml):</label>
+    <select name="layer_xml" id="layer_xml">
+        <option value="">--None--</option>
+        {% for file in xml_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br><br>
     <button type="submit" id="importBtn">Import Data</button>
 </form>
 <div id="progress" style="max-height:200px;overflow-y:auto;background:#f8f8ff;border:1px solid #ccc;padding:10px;border-radius:6px;white-space:pre-line; margin-top:20px;"></div>
