@@ -13,12 +13,11 @@ class Map {
 
     constructor(cfg, name) {
         // Initialize map
-        console.log(cfg);
         this.localhost = cfg.localhost;
         this.layers = {};
         this.activeDate = null;
         this.map = L.map(name, {
-            zoomControl: true,
+            zoomControl: false,
             scrollWheelZoom: true,
             dragging: true,
             doubleClickZoom: true,
@@ -28,10 +27,14 @@ class Map {
             minZoom: cfg.min_zoom,   // minimum zoom level
             maxZoom: cfg.max_zoom    // maximum zoom level
         }).setView([cfg.center_lat, cfg.center_lon], cfg.initial_zoom);
+        
+        // Custom zoom control (styled like info/download widgets, top right)
+        this.addCustomZoomControl();
 
         // Base map
         const tiles = L.tileLayer(cfg.base_map_url, {
         }).addTo(this.map);
+
 
         // Time slider for time series layers
         const availableDates = [];
@@ -89,6 +92,45 @@ class Map {
         // Download control
         this.setDownloadControl();
 
+    }
+
+    /**
+     * Add a custom zoom control styled like info/download widgets, top right above info button
+     */
+    addCustomZoomControl() {
+        const zoomControl = L.control({ position: 'topright' });
+        zoomControl.onAdd = (map) => {
+            const container = L.DomUtil.create('div', 'custom-zoom-control');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            container.style.marginBottom = '18px';
+            // Zoom in button
+            const zoomInBtn = document.createElement('button');
+            zoomInBtn.id = 'custom-zoom-in-btn';
+            zoomInBtn.innerHTML = '+';
+            zoomInBtn.title = 'Zoom in';
+            // Zoom out button
+            const zoomOutBtn = document.createElement('button');
+            zoomOutBtn.id = 'custom-zoom-out-btn';
+            zoomOutBtn.innerHTML = '-';
+            zoomOutBtn.title = 'Zoom out';
+            // Add event listeners
+            zoomInBtn.onclick = (e) => {
+                e.preventDefault();
+                this.map.zoomIn();
+            };
+            zoomOutBtn.onclick = (e) => {
+                e.preventDefault();
+                this.map.zoomOut();
+            };
+            // Prevent map drag when clicking
+            L.DomEvent.disableClickPropagation(container);
+            container.appendChild(zoomInBtn);
+            container.appendChild(zoomOutBtn);
+            return container;
+        };
+        zoomControl.addTo(this.map);
     }
 
     /**
@@ -542,6 +584,20 @@ class LayerWidget extends Widget {
             label.textContent = layerName;
             label.style.marginRight = '8px';
 
+            // Timeline toggle
+            const timelineToggle = document.createElement('button');
+            timelineToggle.textContent = 'Timeline';
+            timelineToggle.className = 'legend-toggle-btn';
+
+            timelineToggle.onclick = () => {
+                if(this.timeline.activeLayer !== layer.layerObj){
+                    if (layer.layerObj.timeseries) { 
+                        this.timeline.setActiveLayer(layer.layerObj);
+                    }
+                } else {
+                    this.timeline.setActiveLayer(null);
+                }
+            };
             // Legend toggle button
             const legendToggle = document.createElement('button');
             legendToggle.textContent = 'Legend';
@@ -593,6 +649,9 @@ class LayerWidget extends Widget {
             const legendToggleWrapper = document.createElement('div');
             legendToggleWrapper.appendChild(legendToggle);
             legendToggleWrapper.style.marginLeft = "28px";
+            if(layer.layerObj.timeseries){
+                legendToggleWrapper.appendChild(timelineToggle);
+            }
 
             // Second line: slider
             const line2 = document.createElement('div');
@@ -603,7 +662,20 @@ class LayerWidget extends Widget {
             line2.style.marginLeft = '28px';
 
             const opacityLabel = document.createElement('span');
-            opacityLabel.textContent = 'Opacity:';
+            opacityLabel.textContent = 'Opacity:   ';
+
+            line2.appendChild(opacityLabel);
+
+            // Second line: slider
+            const line3 = document.createElement('div');
+            line3.style.display = 'flex';
+            line3.style.alignItems = 'center';
+            line3.style.gap = '8px';
+            line3.style.marginTop = '4px';
+            line3.style.marginLeft = '28px';
+
+            const opacityLabel2 = document.createElement('span');
+            opacityLabel2.textContent = '0%  ';
 
             const slider = document.createElement('input');
             slider.type = 'range';
@@ -620,15 +692,21 @@ class LayerWidget extends Widget {
                 }
             };
 
-            line2.appendChild(opacityLabel);
-            line2.appendChild(slider);
+            const opacityLabel3 = document.createElement('span');
+            opacityLabel3.textContent = ' 100%';
+
+            
+            line3.appendChild(opacityLabel2);
+            line3.appendChild(slider);
+            line3.appendChild(opacityLabel3);
 
             wrapper.appendChild(line1);              // First line: checkbox + label
-            wrapper.appendChild(line2);              // Fifth line: slider
+            wrapper.appendChild(line2);              // Second line: description + info link
+            wrapper.appendChild(line3);              // Third line: slider
+            wrapper.appendChild(descWrapper);        // Fourth line: description + info link
             if (layer.layerObj.topic !== 'facilities') {
-                wrapper.appendChild(descWrapper);        // Second line: description + info link
-                wrapper.appendChild(legendToggleWrapper);// Third line: legend toggle button
-                wrapper.appendChild(legendDiv);          // Fourth line: legend
+                wrapper.appendChild(legendToggleWrapper);// Fifth line: legend toggle button
+                wrapper.appendChild(legendDiv);          // Sixth line: legend
             }
 
             this.contentDiv.appendChild(wrapper);
@@ -748,8 +826,17 @@ class TimelineWidget extends Widget {
         this.dateFromPicker = null;
         this.dateToPicker = null;
 
+
+        //close button in header
+        this.header.innerHTML = `<span>${this.title}</span><span class="widget-toggle">x</span>`;
+        this.header.onclick = () => this.close();
+
         this.renderTimeline();
         this.setWidgetStyle();
+    }
+
+    close() {
+        this.setActiveLayer(null);
     }
 
     setWidgetStyle() {
@@ -841,7 +928,6 @@ class TimelineWidget extends Widget {
     }
 
     generateAllDates(minDate, maxDate, dateFormat) {
-        console.log(`Generating all dates from ${minDate} to ${maxDate} with format ${dateFormat}`);
         const result = [];
         let min = minDate.split('-').map(Number);
         let max = maxDate.split('-').map(Number);
@@ -881,12 +967,10 @@ class TimelineWidget extends Widget {
                 }
             }
         }
-        console.log('Generated dates:', result);
         return result;
     }
 
     setActiveLayer(layer) {
-        console.log('Setting active layer in timeline:', layer);
         this.activeLayer = layer;
         if (layer === null) {
             this.hide();
@@ -1239,6 +1323,36 @@ class DownloadWidget extends Widget {
         fileNameDiv.appendChild(fileNameLabel);
         fileNameDiv.appendChild(this.fileNameInput);
 
+        // Format dropdown
+        const formatDiv = document.createElement('div');
+        formatDiv.className = 'download-format-controls';
+
+        const formatLabel = document.createElement('label');
+        formatLabel.htmlFor = 'downloadFormat';
+        formatLabel.textContent = 'Format: ';
+
+        this.formatSelect = document.createElement('select');
+        this.formatSelect.id = 'downloadFormat';
+        this.formatSelect.className = 'download-format-select';
+
+        const ncOption = document.createElement('option');
+        ncOption.value = '.nc';
+        ncOption.textContent = '.nc';
+        this.formatSelect.appendChild(ncOption);
+
+        const tifOption = document.createElement('option');
+        tifOption.value = '.tif';
+        tifOption.textContent = '.tif';
+        this.formatSelect.appendChild(tifOption);
+
+        this.formatSelect.value = '.nc'; // default
+
+        formatDiv.appendChild(formatLabel);
+        formatDiv.appendChild(this.formatSelect);
+
+        // Add formatDiv after fileNameDiv
+        fileNameDiv.appendChild(formatDiv);
+
         bboxDiv.appendChild(bboxLeft);
         //bboxDiv.appendChild(fileNameDiv);
         bboxDiv.appendChild(this.downloadBtn);
@@ -1284,8 +1398,7 @@ class DownloadWidget extends Widget {
         }
         // Default file name if not provided
         let fileName = '../fileExchange/downloads/';
-        fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}.nc`;
-        if (!fileName.endsWith('.nc')) fileName += '.nc';
+        fileName += this.fileNameInput.value || `${table_name}_${init_date}_${end_date}`;
         // Get bounding box coordinates if available
         const bbox = this.bboxCoords
             ? {
@@ -1302,6 +1415,7 @@ class DownloadWidget extends Widget {
         this.downloadBtn.disabled = true;
 
         // Prepare POST request to initiate export 
+        const format = this.formatSelect.value;
         fetch(`/admin/export_table/${table_name}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1309,7 +1423,8 @@ class DownloadWidget extends Widget {
                 init_date: init_date,
                 end_date: end_date,
                 bbox: bbox,
-                output_filename: fileName
+                output_filename: fileName,
+                format: format
             })
         })
         .then(response => response.json())
@@ -1325,12 +1440,12 @@ class DownloadWidget extends Widget {
                                 this.progressDiv.innerText = data.messages.join('\n');
                                 this.progressDiv.scrollTop = this.progressDiv.scrollHeight;
                             } else {
-                                this.progressDiv.style.display = "none";
+                                //this.progressDiv.style.display = "none";
                                 clearInterval(pollingInterval);
                                 this.downloadBtn.disabled = false;
                             }
                         });
-                }, 2000); // Poll every 2 seconds
+                }, 200); // Poll every 0.2 seconds
             } else {
                 this.progressDiv.innerHTML = `<div>Error: ${result.message || 'Unexpected response'}</div>`;
                 this.downloadBtn.disabled = false;
@@ -1343,7 +1458,6 @@ class DownloadWidget extends Widget {
     }
 
     updateDatePickers() {
-        console.log('Updating date pickers for download widget with active layer:', this.activeLayer);
         if (!this.activeLayer || !this.activeLayer.minDate || !this.activeLayer.maxDate) return;
         const minDate = this.activeLayer.minDate;
         const maxDate = this.activeLayer.maxDate;

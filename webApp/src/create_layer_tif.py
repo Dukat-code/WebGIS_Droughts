@@ -156,37 +156,57 @@ def format_hms(seconds):
     return f"{h:02}:{m:02}:{s:02}"
 
 ####################################################################################
-# Generator version of read_nc_file for streaming progress updates
+# Generator version of read_geotiff_file for streaming progress updates
 ####################################################################################
-def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_dim, config_path=None, batch_size=5000, add_to_table=False):
+def read_geotiff_file_stream(geotiff_file, layer_name, config_path=None, batch_size=5000, add_to_table=False):
+    """
+    Reads a multiband GeoTIFF (with band names as dates) and stores data into the database, similar to read_nc_file_stream.
+    """
+    import psycopg2
+    import numpy as np
+    import rasterio
+    from dateutil.parser import parse as parse_date
+
+    message = f"starting to process GeoTIFF file: {geotiff_file} for layer: {layer_name}"
+    print(message)
+    yield message
+
     config = load_config(config_path)
     grids = get_grids(config)
     db_config = dict(config.items('database'))
     conn = psycopg2.connect(**db_config)
     try:
         cursor = conn.cursor()
-        ds = xr.open_dataset(nc_file)
-        # Extract dimensions and data
-        data = ds[value_dim]
-        time_vals = ds[time_dim].values
-        lat_raw = ds[lat_dim].values
-        lon_raw = ds[lon_dim].values
-        lat_sorted_idx = np.argsort(lat_raw)
-        lon_sorted_idx = np.argsort(lon_raw)
-        lat_sorted = lat_raw[lat_sorted_idx]
-        lon_sorted = lon_raw[lon_sorted_idx]
-        # Create mapping from lat/lon values to their original indices
-        lat_val_to_idx = {v: i for i, v in enumerate(lat_raw)}
-        lon_val_to_idx = {v: i for i, v in enumerate(lon_raw)}
+        with rasterio.open(geotiff_file) as src:
+            arr = src.read()  # (bands, height, width)
+            transform = src.transform
+            count = src.count
+            height = src.height
+            width = src.width
+            # Get band descriptions as dates
+            band_dates = []
+            for i in range(count):
+                desc = src.descriptions[i]
+                try:
+                    band_dates.append(str(parse_date(desc).date()))
+                except Exception:
+                    band_dates.append(f"band_{i+1}")
+            # Build coordinates (center of each pixel)
+            lon = np.array([ (transform * (x + 0.5, 0.5))[0] for x in range(width) ])
+            lat = np.array([ (transform * (0.5, y + 0.5))[1] for y in range(height) ])
+            lat_sorted_idx = np.argsort(lat)
+            lon_sorted_idx = np.argsort(lon)
+            lat_sorted = lat[lat_sorted_idx]
+            lon_sorted = lon[lon_sorted_idx]
+            lat_val_to_idx = {v: i for i, v in enumerate(lat)}
+            lon_val_to_idx = {v: i for i, v in enumerate(lon)}
 
         if add_to_table:
-            # Use existing grid table if adding to existing layer
             DATA_GRID = get_existing_grid_table(conn, layer_name)
             message = f"Using existing grid table: {DATA_GRID}"
             print(message)
             yield message
         else:
-            # Determine spatial resolution and create tables
             RES, DATA_GRID = determine_spatial_resolution(lat_sorted, grids)
             if DATA_GRID is None:
                 message = "ERROR: Could not determine grid table for spatial resolution."
@@ -198,16 +218,10 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
             print(message)
             yield message
 
-        # Fetch grid cells intersecting the NetCDF bounding box
+        # Fetch grid cells intersecting the GeoTIFF bounding box
         min_lat, max_lat = float(np.min(lat_sorted)), float(np.max(lat_sorted))
         min_lon, max_lon = float(np.min(lon_sorted)), float(np.max(lon_sorted))
         grid_cells = fetch_grid_cells(conn, DATA_GRID, min_lon, min_lat, max_lon, max_lat)
-        dim_names = list(data.dims)
-        dim_map = {
-            lat_dim: dim_names.index(lat_dim),
-            lon_dim: dim_names.index(lon_dim),
-            time_dim: dim_names.index(time_dim)
-        }
 
         # Determine if points are inside cells or at vertices
         center_cell = grid_cells[len(grid_cells)//2]
@@ -232,23 +246,21 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
                     matches += 1
             at_vertex_mode = (matches == 4)
         if not inside_mode and not at_vertex_mode:
-            message = "ERROR: NetCDF points are neither inside cells nor at vertices."
+            message = "ERROR: GeoTIFF points are neither inside cells nor at vertices."
             print(message)
             yield message
             return
-        
-        # to display progress
+
         total_cells = len(grid_cells)
-        total_times = len(time_vals)
+        total_times = count
         total_iterations = total_cells * total_times
         progress_count = 0
         batch = []
         last_percent = -1.0
-        start_time = time.time()
+        start_time = None
 
         # --- INSIDE MODE ---
         if inside_mode:
-            # Precompute cell to lat/lon index mappings
             cell_to_idx = []
             for cell in grid_cells:
                 cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
@@ -265,49 +277,41 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
                     cell_to_idx.append((cell['xcol'], cell['yrow'], la_idx, lo_idx))
                 else:
                     cell_to_idx.append(None)
-
-            # Iterate over time and cells to extract and insert data                    
-            for t_idx, tv in enumerate(time_vals):
+            for t_idx, date_str in enumerate(band_dates):
                 for mapping in cell_to_idx:
                     if mapping is not None:
                         xcol, yrow, la_idx, lo_idx = mapping
-                        idx = [None, None, None]
-                        idx[dim_map[lat_dim]] = la_idx
-                        idx[dim_map[lon_dim]] = lo_idx
-                        idx[dim_map[time_dim]] = t_idx
                         try:
-                            val = data.values[tuple(idx)]
+                            val = arr[t_idx, la_idx, lo_idx]
                         except Exception:
                             continue
                         if not np.isnan(val):
-                            # Append data to batch for insertion
-                            batch.append((xcol, yrow, float(val), np.datetime_as_string(tv, unit='D')))
+                            batch.append((xcol, yrow, float(val), date_str))
                             if len(batch) >= batch_size:
                                 batch_insert(cursor, layer_name, batch)
                                 batch = []
                     progress_count += 1
                     percent = (progress_count / total_iterations) * 100
                     if percent - last_percent >= 0.1 or progress_count == total_iterations:
+                        if start_time is None:
+                            import time
+                            start_time = time.time()
                         elapsed = time.time() - start_time
                         if percent > 0:
                             estimated_total = elapsed / (percent / 100)
                             remaining = estimated_total - elapsed
                         else:
                             remaining = 0
-                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}"
+                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {int(elapsed)}s, Remaining: {int(remaining)}s"
                         print(message)
                         yield message
                         last_percent = percent
-                # Flush remaining batch
                 if batch:
                     batch_insert(cursor, layer_name, batch)
                     batch = []
-        # --- VERTEX MODE --> Same process, if points in verices of the grid
-        # --- In this case, average the 4 vertex values for each cell
+        # --- VERTEX MODE ---
         elif at_vertex_mode:
-            # Precompute cell to vertex index mappings
             cell_to_vertex_indices = []
-            # Iterate through grid cells to find vertex indices
             for cell in grid_cells:
                 cell_lat_min, cell_lat_max = cell['ymin'], cell['ymax']
                 cell_lon_min, cell_lon_max = cell['xmin'], cell['xmax']
@@ -318,12 +322,9 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
                     (cell_lat_max, cell_lon_max)
                 ]
                 indices = []
-                # Find indices for each vertex
                 for vlat, vlon in vertex_coords:
-                    # Find indices in sorted lat and lon arrays that are close to vertex coordinates
                     lat_idx = np.where(np.isclose(lat_sorted, vlat, atol=1e-4))[0]
                     lon_idx = np.where(np.isclose(lon_sorted, vlon, atol=1e-4))[0]
-                    # Ensure both lat and lon indices are found
                     if lat_idx.size == 0 or lon_idx.size == 0:
                         continue
                     la_val = lat_sorted[lat_idx[0]]
@@ -331,61 +332,51 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
                     la_idx = lat_val_to_idx[la_val]
                     lo_idx = lon_val_to_idx[lo_val]
                     indices.append((la_idx, lo_idx))
-                # Only store if all 4 vertex indices are found
                 if len(indices) == 4:
                     cell_to_vertex_indices.append((cell['xcol'], cell['yrow'], indices))
                 else:
                     cell_to_vertex_indices.append(None)
-            # Iterate over time and cells to extract, average, and insert data
-            for t_idx, tv in enumerate(time_vals):
+            for t_idx, date_str in enumerate(band_dates):
                 for mapping in cell_to_vertex_indices:
                     if mapping is not None:
                         xcol, yrow, indices = mapping
                         vals = []
-                        # Gather values at the 4 vertices
                         for la_idx, lo_idx in indices:
-                            # Construct index for data extraction
-                            idx = [None, None, None]
-                            idx[dim_map[lat_dim]] = la_idx
-                            idx[dim_map[lon_dim]] = lo_idx
-                            idx[dim_map[time_dim]] = t_idx
                             try:
-                                # Extract value from data array
-                                val = data.values[tuple(idx)]
+                                val = arr[t_idx, la_idx, lo_idx]
                             except Exception:
                                 continue
-                            # Only consider valid (non-NaN) values
                             if not np.isnan(val):
                                 vals.append(float(val))
-                        # If all 4 vertex values are valid, compute average and add to batch
                         if len(vals) == 4:
                             avg_value = float(np.mean(vals))
-                            batch.append((xcol, yrow, avg_value, np.datetime_as_string(tv, unit='D')))
+                            batch.append((xcol, yrow, avg_value, date_str))
                             if len(batch) >= batch_size:
                                 batch_insert(cursor, layer_name, batch)
                                 batch = []
-                    # Update progress
                     progress_count += 1
                     percent = (progress_count / total_iterations) * 100
                     if percent - last_percent >= 0.1 or progress_count == total_iterations:
+                        if start_time is None:
+                            import time
+                            start_time = time.time()
                         elapsed = time.time() - start_time
                         if percent > 0:
                             estimated_total = elapsed / (percent / 100)
                             remaining = estimated_total - elapsed
                         else:
                             remaining = 0
-                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {format_hms(elapsed)}, Remaining: {format_hms(remaining)}"
+                        message = f"Processed {progress_count}/{total_iterations} cell-times... ({percent:.1f}%) Elapsed: {int(elapsed)}s, Remaining: {int(remaining)}s"
                         print(message)
                         yield message
                         last_percent = percent
-                # Flush remaining batch
                 if batch:
                     batch_insert(cursor, layer_name, batch)
                     batch = []
         conn.commit()
         cursor.close()
         conn.close()
-        message = "Layer creation completed."
+        message = "Layer creation from GeoTIFF completed."
         print(message)
         yield message
     except Exception as e:
@@ -397,31 +388,23 @@ def read_nc_file_stream(nc_file, layer_name, value_dim, time_dim, lon_dim, lat_d
 # MAIN
 ####################################################################################
 def main():
-    parser = argparse.ArgumentParser(description="Process NetCDF layer ingestion parameters.")
-    parser.add_argument('--nc_file', required=True, help="Path to NetCDF file")
+    parser = argparse.ArgumentParser(description="Process GeoTiff layer ingestion parameters.")
+    parser.add_argument('--geotiff_file', required=True, help="Path to GeoTIFF file")
     parser.add_argument('--layer_name', required=True, help="Layer name")
-    parser.add_argument('--value_dim', required=True, help="Value dimension name")
-    parser.add_argument('--time_dim', default='valid_time', help="Time dimension name (default: 'valid_time')")
-    parser.add_argument('--lon_dim', default='longitude', help="Longitude dimension name (default: 'longitude')")
-    parser.add_argument('--lat_dim', default='latitude', help="Latitude dimension name (default: 'latitude')")
     parser.add_argument('--config_path', default=None, help="Path to config.ini")
     parser.add_argument('--add_to_table', action='store_true', help="Add data to existing table (do not create table/view)")
     args = parser.parse_args()
 
     try:
-        for msg in read_nc_file_stream(
-            args.nc_file,
+        for msg in read_geotiff_file_stream(
+            args.geotiff_file,
             args.layer_name,
-            args.value_dim,
-            args.time_dim,
-            args.lon_dim,
-            args.lat_dim,
             config_path=args.config_path,
             add_to_table=args.add_to_table
         ):
             print(msg)
     except Exception as e:
-        print(f"Could not process NetCDF file: {e}", file=sys.stderr)
+        print(f"Could not process GeoTIFF file: {e}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

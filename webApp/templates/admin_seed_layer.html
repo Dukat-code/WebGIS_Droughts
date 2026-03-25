@@ -3,7 +3,12 @@
 <h2>Seed Layer Tiles</h2>
 <form method="post">
     <label for="layer">Layer name:</label>
-    <input type="text" id="layer" name="layer" required><br><br>
+    <select id="layer" name="layer" required>
+        <option value="" disabled selected>Select a layer</option>
+        {% for lname in layers %}
+            <option value="{{ lname }}">{{ lname }}</option>
+        {% endfor %}
+    </select><br><br>
     <label for="zoom_start">Zoom start:</label>
     <input type="number" id="zoom_start" name="zoom_start" value="3" min="0"><br><br>
     <label for="zoom_stop">Zoom stop:</label>

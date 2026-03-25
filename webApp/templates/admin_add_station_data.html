@@ -1,14 +1,50 @@
 {% extends "admin_dashboard.html" %}
 {% block content %}
 <h2>Import Meteostation Data</h2>
-<form id="importForm" enctype="multipart/form-data">
+<style>
+    .aligned-form label {
+        display: inline-block;
+        width: 170px;
+        text-align: right;
+        margin-right: 12px;
+        margin-bottom: 10px;
+        vertical-align: top;
+    }
+    .aligned-form select {
+        width: 220px;
+        padding: 5px;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+    }
+    .aligned-form button {
+        margin-left: 182px;
+        margin-top: 10px;
+    }
+</style>
+<form id="importForm" enctype="multipart/form-data" class="aligned-form">
     <label for="csv_filename">Select CSV file:</label>
     <select name="csv_filename" id="csv_filename" required>
         {% for file in csv_files %}
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
+    <label for="product_json">Product Info (.json):</label>
+    <select name="product_json" id="product_json">
+        <option value="">--None--</option>
+        {% for file in json_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br>
+    <label for="layer_xml">Layer Metadata (.xml):</label>
+    <select name="layer_xml" id="layer_xml">
+        <option value="">--None--</option>
+        {% for file in xml_files %}
+            <option value="{{ file }}">{{ file }}</option>
+        {% endfor %}
+    </select>
+    <br>
     <button type="submit" id="importBtn">Import Data</button>
 </form>
 <div id="progress" style="max-height:200px;overflow-y:auto;background:#f8f8ff;border:1px solid #ccc;padding:10px;border-radius:6px;white-space:pre-line; margin-top:20px;"></div>
@@ -26,12 +62,12 @@ document.addEventListener("DOMContentLoaded", function() {
                         progressDiv.innerText = data.messages.join('\n');
                         progressDiv.scrollTop = progressDiv.scrollHeight;
                     } else {
-                        progressDiv.innerText = "";
-                        clearInterval(pollingInterval);
+                        //progressDiv.innerText = "";
+                        //clearInterval(pollingInterval);
                         document.getElementById('importBtn').disabled = false;
                     }
                 });
-        }, 2000);
+        }, 50);
     }
 
     const importForm = document.getElementById('importForm');

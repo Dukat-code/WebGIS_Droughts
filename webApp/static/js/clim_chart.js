@@ -60,10 +60,10 @@ function createElements(lat, lon, layer, min_date, max_date, color_min, color_ma
 
         const dekadNames = ["Dekad: 1 (Days 1-10)", "Dekad: 2 (Days 11-20)", "Dekad: 3 (Days 21-end)"];
         dekadFromSlider.oninput = function () {
-            dekadFromLabel.textContent = dekadNames[dekadFromSlider.value];
+            dekadFromLabel.value = dekadNames[dekadFromSlider.value];
         };
         dekadToSlider.oninput = function () {
-            dekadToLabel.textContent = dekadNames[dekadToSlider.value];
+            dekadToLabel.value = dekadNames[dekadToSlider.value];
         };
     }
 
@@ -151,15 +151,14 @@ function getData(lat, lon, yearFrom, monthFrom, dekadFrom, yearTo, monthTo, deka
             let stdMinus = std.map((v, i) => parseFloat(avg[i]) - parseFloat(v)).map(v => v < 0 ? 0 : v);
             draw_chart(data, avg, stdPlus, stdMinus, labels);
 
+            const fileName = layer+"_"+yearFrom+"-"+monthFrom+(dekadFrom ? ("-D"+dekadFrom) : "")+"_to_"+yearTo+"-"+monthTo+(dekadTo ? ("-D"+dekadTo) : "")+".csv";
             document.getElementById("downloadCSVBtn").onclick = () => {
-                downloadCSV(r, date_format);
+                downloadCSV(r, date_format, fileName);
             };
         });
 }
 
 function draw_chart(data, avg, stdPlus, stdMinus, labels) {
-    console.log("chart_style:");
-    console.log(chart_style);
     let backgroundColors = [];
     const ctx = document.getElementById('myChart');
     if (chart_style && (chart_style !== 'null')) {
@@ -231,7 +230,7 @@ function draw_chart(data, avg, stdPlus, stdMinus, labels) {
     });
 }
 
-function downloadCSV(data, date_format) {
+function downloadCSV(data, date_format, fileName) {
     let csvContent = "";
     if (date_format === "YYYY-MM-DD" || date_format === "yyyy-mm-dd") {
         csvContent = "Year,Month,Dekad,Data\n";
@@ -255,7 +254,7 @@ function downloadCSV(data, date_format) {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = "climate_data.csv";
+    a.download = fileName ? fileName : "climate_data.csv";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -4,9 +4,32 @@
     {% if message %}
         <div style="color: green;">{{ message }}</div>
     {% endif %}
-    <form method="post">
-        <label>Username: <input type="text" name="username"></label><br>
-        <label>Password: <input type="password" name="password"></label><br>
+    <style>
+        .aligned-form label {
+            display: block;
+            margin-bottom: 12px;
+            min-width: 120px;
+        }
+        .aligned-form label span {
+            display: inline-block;
+            width: 100px;
+            text-align: right;
+            margin-right: 10px;
+        }
+        .aligned-form input[type="text"],
+        .aligned-form input[type="password"] {
+            width: 220px;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+        .aligned-form button {
+            margin-right: 10px;
+        }
+    </style>
+    <form method="post" class="aligned-form">
+        <label><span>Username:</span> <input type="text" name="username"></label>
+        <label><span>Password:</span> <input type="password" name="password"></label>
+        <br>
         <button type="submit" name="action" value="create">Create User</button>
         <button type="submit" name="action" value="delete">Delete User</button>
         <button type="submit" name="action" value="change_password">Change Password</button>

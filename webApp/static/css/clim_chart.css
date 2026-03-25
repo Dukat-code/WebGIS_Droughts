@@ -43,6 +43,14 @@
     text-align: center;
 }
 
+.dekad {
+    display: block;
+    width: 60%;
+    margin: auto;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
 .slider {
     width: 100%;
 }
@@ -144,6 +152,7 @@ input[type="range"]::-ms-tooltip {
 
 .control {
     width: 95%;
+    margin-bottom: 50px;
 }
 
 .setButton {

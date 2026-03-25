@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 import decimal
 import os
+import re
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -10,6 +11,8 @@ import json
 import gc
 import xml.etree.ElementTree as ET
 import configparser
+import rasterio
+from rasterio.transform import from_origin
 
 ################################################################
 # CONFIGURATION
@@ -34,8 +37,14 @@ def get_key_config(feat):
     }
 
 ################################################################
+################################################################
 # Functions to get layer info from the database
 ################################################################
+################################################################
+
+############################################################
+# Get feature data from the database
+############################################################
 def get_feature_data(layer, lat, lon, date, conn):
     """
     Get feature info from the {layer} based on lat, lon, and date.
@@ -67,6 +76,12 @@ def get_feature_data(layer, lat, lon, date, conn):
     except Exception as e:
         return {"error": str(e)}
 
+
+        
+
+#############################################################
+# Get feature data from lat/lon over a date range
+#############################################################
 def get_feature_data_from_lat_lon(layer, lat, lon, yearFrom, monthFrom, yearTo, monthTo, conn):
     """
     Get feature info from the database based on layer, lat, lon, and date,
@@ -137,7 +152,10 @@ def get_feature_data_from_lat_lon(layer, lat, lon, yearFrom, monthFrom, yearTo, 
             }
     except Exception as e:
         return {"error": str(e)}
-    
+
+#############################################################
+# Get feature data from lat/lon over a date range (dekads)
+#############################################################    
 def get_feature_data_from_lat_lon_dekad(layer, lat, lon, dateFrom, dateTo, conn):
     """
     Get feature info from the database based on layer, lat, lon, and date,
@@ -216,6 +234,9 @@ def get_feature_data_from_lat_lon_dekad(layer, lat, lon, dateFrom, dateTo, conn)
     except Exception as e:
         return {"error": str(e)}
 
+#############################################################
+# Get time bounds for data at a given lat/lon
+#############################################################
 def get_data_time_bounds(lat, lon, layer, conn):
     """
     Get the minimum and maximum date for the given location from the view.
@@ -248,6 +269,9 @@ def get_data_time_bounds(lat, lon, layer, conn):
     except Exception as e:
         return None
 
+#############################################################
+# Get time bounds for a given layer
+#############################################################
 def get_layer_time_bounds(layer, conn):
     """
     Get the minimum and maximum date for the given layer,
@@ -285,7 +309,16 @@ def get_layer_time_bounds(layer, conn):
         }
     except Exception as e:
         return None
+#############################################################
+#############################################################
+# Functions to get meteostation data from the database
+#############################################################   
+#############################################################   
 
+#############################################################
+# Get meteostation data for one station 
+# within 0.1 degree of lat/lon and date
+#############################################################
 def get_meteostation_month_data(conn, lat, lon, date):
     """
     Retrieve data from meteostation_month_data for one station within 0.1 degree of the given lat/lon and date.
@@ -310,6 +343,9 @@ def get_meteostation_month_data(conn, lat, lon, date):
     except Exception as e:
         return {"error": str(e)}
 
+#############################################################
+# Get all meteostations as GeoJSON
+#############################################################
 def get_meteo_stations_geojson(conn):
     cursor = conn.cursor()
     cursor.execute("""
@@ -336,6 +372,9 @@ def get_meteo_stations_geojson(conn):
         "features": features
     }
 
+#############################################################  
+# Get meteostation data for one station at lat/lon and date
+#############################################################
 def get_data_from_meteostation(conn, lat, lon, date):
     try:
         query = """
@@ -363,6 +402,9 @@ def get_data_from_meteostation(conn, lat, lon, date):
     except Exception as e:
         return {"error": str(e)}
 
+#############################################################
+# Get time bounds for a given meteostation at lat/lon
+#############################################################
 def get_station_time_bounds(lat, lon, conn):
     """
     Get the minimum and maximum year and month for the given meteostation location.
@@ -392,6 +434,11 @@ def get_station_time_bounds(lat, lon, conn):
     except Exception as e:
         return None
 
+#############################################################
+# Get feature info from the database based on layer, lat, lon, and date,
+# returned as a numpy array [year][month], plus avg and st_dev per month
+# for the selected cell over all dates in the table.
+#############################################################
 def get_station_data_from_lat_lon(layer, variable, lat, lon, yearFrom, monthFrom, yearTo, monthTo, conn):
     """
     Get feature info from the database based on layer, lat, lon, and date,
@@ -459,6 +506,63 @@ def get_station_data_from_lat_lon(layer, variable, lat, lon, yearFrom, monthFrom
     except Exception as e:
         return {"error": str(e)}
 
+#############################################################
+#############################################################
+# Functions to export data to NetCDF or GeoTIFF
+#############################################################
+#############################################################
+#############################################################
+# Get grid table from existing view
+#############################################################
+def get_existing_grid_table(conn, layer_name):
+    cursor = conn.cursor()
+    try:
+        query = f"""
+            SELECT definition
+            FROM pg_views
+            WHERE viewname = %s
+        """
+        cursor.execute(query, (layer_name,))
+        result = cursor.fetchone()
+        if not result:
+            raise Exception(f"Could not find view definition for {layer_name}")
+        definition = result[0]
+        print("DEBUG: View definition for", layer_name)
+        print(definition)
+        # Updated regex to match both "JOIN <table> grid" and "JOIN <table> AS grid"
+        match = re.search(r'JOIN\s+([a-zA-Z0-9_\.]+)\s+(?:AS\s+)?grid', definition)
+        if not match:
+            raise Exception("Could not parse grid table from view definition.")
+        grid_table = match.group(1)
+        print(f"Existing grid table for layer {layer_name}: {grid_table}")
+        return grid_table
+    finally:
+        cursor.close()
+
+#############################################################
+# Get grid resolution from config.ini
+#############################################################
+def get_grid_resolution(grid_name, config_path=None):
+    """
+    Given a grid name and config.ini, return the resolution for that grid as a float.
+    """
+    if config_path is None:
+        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.ini')
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if 'grids' not in config:
+        raise KeyError("Missing [grids] section in config.ini")
+    for res_str, grid in config['grids'].items():
+        if grid == grid_name:
+            try:
+                return float(res_str)
+            except Exception:
+                raise ValueError(f"Resolution key '{res_str}' is not a valid float.")
+    raise ValueError(f"Grid name '{grid_name}' not found in [grids] section of config.ini.")        
+
+#############################################################
+# Calculate centroid lat/lon from xcol/yrow
+#############################################################
 def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_final, yrow_final):
     delta_x = xcol_final - min_xcol
     delta_y = yrow_final - min_yrow
@@ -466,6 +570,9 @@ def get_centroid_lat_lon(min_xcol, min_yrow, max_lat, min_lon, resolution, xcol_
     centroid_lon = min_lon + delta_x * resolution
     return centroid_lat, centroid_lon
 
+#############################################################
+# Format seconds to HH:MM:SS
+#############################################################
 def format_hms(seconds):
         seconds = int(seconds)
         h = seconds // 3600
@@ -473,9 +580,15 @@ def format_hms(seconds):
         s = seconds % 60
         return f"{h:02}:{m:02}:{s:02}"
 
-def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, end_date, bbox, output_filename, chunksize=100000):
+#############################################################
+# Export table data to NetCDF
+#############################################################
+def export_table_to_netcdf(conn, table_name, init_date, end_date, bbox, output_filename, chunksize=100000):
     
     yield "Starting export..."
+
+    grid_name = get_existing_grid_table(conn, table_name)
+    resolution = get_grid_resolution(grid_name)
 
     # Get bounds
     if bbox:
@@ -576,6 +689,8 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         del all_dfs
         gc.collect()
         big_df = big_df.groupby(['latitude', 'longitude', 'date']).mean().reset_index()
+        # Only keep the 'value' column for export
+        big_df = big_df[['latitude', 'longitude', 'date', 'value']]
         big_df = big_df.set_index(['latitude', 'longitude', 'date'])
         ds = xr.Dataset.from_dataframe(big_df)
         ds.to_netcdf(output_filename)
@@ -584,6 +699,255 @@ def export_table_to_netcdf(conn, table_name, grid_name, resolution, init_date, e
         yield f"Export completed successfully. File: {output_filename}"
     except Exception as e:
         yield f"Error exporting data to NetCDF: {e.__class__.__name__}: {e}"
+
+#############################################################
+# Export table data to a multiband GeoTIFF
+#############################################################
+def export_table_to_geotiff(conn, table_name, init_date, end_date, bbox, output_filename, chunksize=100000):
+    """
+    Export table data to a multiband GeoTIFF.
+    Each band corresponds to a date, and the band description is set to the date string.
+    """
+    
+    grid_name = get_existing_grid_table(conn, table_name)
+    resolution = get_grid_resolution(grid_name)
+
+    yield "Starting export..."
+
+    # Get bounds
+    yield "Calculating bounds for export..."
+    if bbox:
+        query = f"""
+            SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow)
+            FROM {table_name}
+            WHERE ST_Intersects(cell, ST_MakeEnvelope(%s, %s, %s, %s, 4326));
+        """
+        params = [bbox["min_lon"], bbox["min_lat"], bbox["max_lon"], bbox["max_lat"]]
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            if not result:
+                yield "No data found in the table."
+                return
+            min_xcol, max_xcol, min_yrow, max_yrow = result
+    else:
+        query = f"SELECT MIN(xcol), MAX(xcol), MIN(yrow), MAX(yrow) FROM {table_name};"
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            min_xcol, max_xcol, min_yrow, max_yrow = cursor.fetchone()
+    yield f"Bounds determined: xcol=({min_xcol}, {max_xcol}), yrow=({min_yrow}, {max_yrow})"
+
+    # Get reference point for transform
+    yield "Getting reference point for GeoTIFF transform..."
+    query = f"""
+        SELECT xcol, yrow, ST_AsText(ST_Centroid(cell)) AS centroid
+        FROM {table_name}
+        WHERE xcol = %s AND yrow = %s
+        LIMIT 1;
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(query, (min_xcol, min_yrow))
+        result = cursor.fetchone()
+        if not result:
+            yield "No data found in the table."
+            return
+        _, _, centroid_wkt = result
+        coords = centroid_wkt.replace('POINT(', '').replace(')', '').split()
+        min_lon, max_lat = float(coords[0]), float(coords[1])
+    yield f"Reference point: lon={min_lon}, lat={max_lat}"
+
+    # Prepare main query
+    yield "Querying table data for export..."
+    query = f"""
+        SELECT t.xcol, t.yrow, t.date, t.value
+        FROM {table_name} t
+        JOIN {grid_name} g ON t.xcol = g.xcol AND t.yrow = g.yrow
+        WHERE t.date BETWEEN %s AND %s
+    """
+    params = [init_date, end_date]
+    if bbox:
+        query += """
+            AND t.xcol BETWEEN %s AND %s
+            AND t.yrow BETWEEN %s AND %s
+        """
+        params.extend([min_xcol, max_xcol, min_yrow, max_yrow])
+
+    # Read all data into a DataFrame
+    df = pd.read_sql(query, conn, params=params)
+    if df.empty:
+        yield "No data found for the given parameters."
+        return
+    yield f"Data loaded: {len(df)} records, {df['date'].nunique()} dates."
+
+    # Prepare grid
+    yield "Preparing grid and array for GeoTIFF..."
+    xcols = np.arange(min_xcol, max_xcol + 1)
+    yrows = np.arange(min_yrow, max_yrow + 1)
+    dates = sorted(df['date'].unique())
+    arr = np.full((len(dates), len(yrows), len(xcols)), np.nan, dtype=np.float32)
+    date_to_band = {date: i for i, date in enumerate(dates)}
+
+    # Fill array
+    yield "Filling array with table values..."
+    for idx, row in enumerate(df.itertuples(index=False), 1):
+        x_idx = int(row.xcol - min_xcol)
+        y_idx = int(row.yrow - min_yrow)
+        band_idx = date_to_band[row.date]
+        arr[band_idx, y_idx, x_idx] = row.value
+        if idx % 100000 == 0:
+            yield f"Filled {idx} records into array..."
+
+    # GeoTIFF transform (align to cell centroids)
+    pixel_width = resolution
+    pixel_height = resolution
+    # Offset by half a pixel to align pixel centers with cell centroids
+    transform = from_origin(min_lon - 0.5 * pixel_width, max_lat + 0.5 * pixel_height, pixel_width, pixel_height)
+    yield "Array filled. Starting GeoTIFF writing... (centroid-aligned)"
+
+    # Write GeoTIFF
+    with rasterio.open(
+        output_filename,
+        'w',
+        driver='GTiff',
+        height=arr.shape[1],
+        width=arr.shape[2],
+        count=arr.shape[0],
+        dtype=arr.dtype,
+        crs='EPSG:4326',
+        transform=transform,
+    ) as dst:
+        for i, date in enumerate(dates):
+            dst.write(arr[i, :, :], i + 1)
+            dst.set_band_description(i + 1, str(date))
+            percent = (i + 1) / len(dates) * 100
+            yield f"Written band {i+1}/{len(dates)} ({percent:.1f}%) - {date}"
+
+    yield f"Multiband GeoTIFF written to {output_filename}"
+
+#############################################################
+# Export NetCDF variable/time slice to GeoTIFF
+#############################################################
+def netcdf_to_geotiff(nc_path, geotiff_path=None):
+    import xarray as xr
+    import os
+    import rasterio
+    from rasterio.transform import from_origin
+
+    ds = xr.open_dataset(nc_path)
+    var_name = list(ds.data_vars)[0]
+    arr = ds[var_name].values  # shape: (latitude, longitude, date)
+    print("Data array shape:", arr.shape)
+    lat = ds['latitude'].values
+    print("Latitude array shape:", lat.shape)
+    lon = ds['longitude'].values
+    print("Longitude array shape:", lon.shape)
+    dates = ds['date'].values
+    print("Dates array shape:", dates.shape)
+
+    # Transpose array to (date, latitude, longitude) for rasterio
+    arr = np.transpose(arr, (2, 0, 1))  # Now shape: (date, latitude, longitude)
+
+    pixel_width = abs(lon[1] - lon[0])
+    pixel_height = abs(lat[1] - lat[0])
+    transform = from_origin(lon.min(), lat.max(), pixel_width, pixel_height)
+
+    if geotiff_path is None:
+        geotiff_path = os.path.splitext(nc_path)[0] + "_multiband.tif"
+
+    with rasterio.open(
+        geotiff_path,
+        'w',
+        driver='GTiff',
+        height=arr.shape[1],
+        width=arr.shape[2],
+        count=arr.shape[0],  # number of dates as bands
+        dtype=arr.dtype,
+        crs='EPSG:4326',
+        transform=transform,
+    ) as dst:
+        total = arr.shape[0]
+        for t in range(total):
+            dst.write(arr[t, :, :], t + 1)
+            # Set band description to the date string
+            date_str = str(dates[t])
+            dst.set_band_description(t + 1, date_str)
+            percent = (t + 1) / total * 100
+            yield f"Written band {t+1}/{total} ({percent:.1f}%) - {date_str}"
+
+    yield f"Multiband GeoTIFF written to {geotiff_path}"
+
+#############################################################
+# Convert multiband GeoTIFF to NetCDF
+#############################################################
+def geotiff_to_netcdf(geotiff_path, netcdf_path=None, dates=None):
+    """
+    Convert a multiband GeoTIFF file to a NetCDF file.
+    Each band is assumed to represent a time slice (e.g., a date).
+    Optionally, provide a list of date strings (len = band count).
+    If not provided, will use band descriptions if available, else generic indices.
+    """
+
+
+    with rasterio.open(geotiff_path) as src:
+        arr = src.read()  # (bands, height, width)
+        transform = src.transform
+        crs = src.crs
+        count = src.count
+        height = src.height
+        width = src.width
+        # Get band descriptions if available
+        band_desc = [src.descriptions[i] if src.descriptions[i] else f"band_{i+1}" for i in range(count)]
+        # Get coordinates (center of each pixel)
+        lon = np.array([ (transform * (x + 0.5, 0.5))[0] for x in range(width) ])
+        lat = np.array([ (transform * (0.5, y + 0.5))[1] for y in range(height) ])
+        # rasterio uses (band, y, x), netcdf_to_geotiff expects (lat, lon, date), so transpose
+        arr = np.transpose(arr, (1, 2, 0)).astype(np.float32)  # (height, width, bands) -> (lat, lon, date)
+
+    # Handle dates
+    if dates is not None:
+        if len(dates) != count:
+            raise ValueError("Length of dates must match number of bands in GeoTIFF.")
+        time = np.array(dates)
+    else:
+        # Try to use band descriptions if they look like dates
+        try:
+            import dateutil.parser
+            time = np.array([str(dateutil.parser.parse(d)) for d in band_desc])
+        except Exception:
+            time = np.array([f"band_{i+1}" for i in range(count)])
+
+    # Use the same variable name as export_table_to_netcdf (value)
+    var_name = "value"
+
+    # Build DataArray and Dataset with correct dims and coords
+    da = xr.DataArray(
+        arr,
+        dims=["latitude", "longitude", "date"],
+        coords={
+            "latitude": lat,
+            "longitude": lon,
+            "date": time
+        },
+        name=var_name
+    )
+    ds = xr.Dataset({var_name: da})
+    ds.attrs["crs"] = str(crs)
+
+    if netcdf_path is None:
+        netcdf_path = os.path.splitext(geotiff_path)[0] + ".nc"
+
+    ds.to_netcdf(netcdf_path)
+    return netcdf_path
+
+#############################################################
+#############################################################
+# Miscellaneous functions
+#############################################################
+#############################################################
+
+#############################################################
+# Parse SLD rules from SLD XML source
+#############################################################
 
 def parse_sld_rules(sld_source):
     try:
@@ -626,3 +990,4 @@ def parse_sld_rules(sld_source):
         return rules
     except Exception:
         return None
+

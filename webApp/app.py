@@ -1,3 +1,4 @@
+
 from flask import Flask, json, jsonify, render_template, Response, request, redirect, url_for, session, stream_with_context
 from flask_cors import CORS
 from waitress import serve
@@ -13,11 +14,13 @@ from src.get_layer_info import (
     get_feature_data, get_layer_time_bounds, get_meteo_stations_geojson, get_meteostation_month_data,
     get_feature_data_from_lat_lon, get_data_time_bounds, get_data_from_meteostation,
     get_station_time_bounds, get_station_data_from_lat_lon, export_table_to_netcdf, parse_sld_rules,
-    get_feature_data_from_lat_lon_dekad
+    get_feature_data_from_lat_lon_dekad,netcdf_to_geotiff, export_table_to_geotiff
 )
 from src.import_meteo_csv import import_meteo_csv_stream   
 from src.create_layer import read_nc_file_stream
+from src.create_layer_tif import read_geotiff_file_stream, get_existing_grid_table
 from src.seeding import seed_layer_tiles
+import time
 
 ##############################################################################
 # CONFIGURATION
@@ -341,6 +344,19 @@ def admin_config():
                 config.write(f)
             message = "Configuration updated successfully."
 
+            # Reload config from disk after saving
+            config = configparser.ConfigParser()
+            config.read(config_path)
+            filtered_config = configparser.ConfigParser()
+            for section in config.sections():
+                if section == 'database' or section == 'geoserver':
+                    continue
+                filtered_config.add_section(section)
+                for key, value in config.items(section):
+                    if section == 'base' and key == 'base_url':
+                        continue
+                    filtered_config.set(section, key, value)
+
     # Prepare config text for textarea
     from io import StringIO
     output = StringIO()
@@ -393,6 +409,16 @@ def admin_upload():
                 message = f"File '{file_to_delete}' deleted successfully."
             else:
                 message = f"File '{file_to_delete}' not found."
+        elif 'download_file' in request.form:
+            file_to_download = request.form.get('download_file')
+            filepath = os.path.join(upload_folder, file_to_download)
+            if os.path.exists(filepath):
+                with open(filepath, 'rb') as f:
+                    response = Response(f.read(), mimetype='application/octet-stream')
+                    response.headers.set('Content-Disposition', 'attachment', filename=file_to_download)
+                return response
+            else:
+                message = f"File '{file_to_download}' not found."
         elif 'file' in request.files:
             file = request.files['file']
             if file.filename == '':
@@ -446,6 +472,8 @@ def admin_add_station_data():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
     csv_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.csv')]
+    json_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.json')]
+    xml_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.xml')]
     message = None
 
     if request.method == 'POST':
@@ -464,13 +492,13 @@ def admin_add_station_data():
             except Exception as e:
                 message = f"Error importing: {e}"
 
-    return render_template('admin_add_station_data.html', csv_files=csv_files, message=message)
+    return render_template('admin_add_station_data.html', csv_files=csv_files, json_files=json_files, xml_files=xml_files, message=message)
 
 ###
 ### Background meteo station data import with progress tracking
 ###
 
-def import_meteo_stations_background(csv_file, config_path, sql_path, user_name):
+def import_meteo_stations_background(csv_file, config_path, sql_path, product_json, layer_xml, metadata_folder, user_name):
     process_id = f"import_meteostations:{os.path.basename(csv_file)}"
     clear_progress_messages(user_name, process_id)
     error_message = None
@@ -502,8 +530,36 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
             print(error_message)
             save_progress_message(user_name, process_id, error_message)
             success = False
-        # Delete CSV file if successful
         if success:
+            if product_json:
+                try:
+                    target_json = os.path.join(metadata_folder, "meteo_stations.json")
+                    if os.path.exists(target_json):
+                        os.remove(target_json)
+                    os.rename(product_json, target_json)
+                    msg = f"Product info file moved to '{target_json}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move product info file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            # Move layer metadata XML
+            if layer_xml:
+                try:
+                    target_xml = os.path.join(metadata_folder, "meteo_stations.xml")
+                    if os.path.exists(target_xml):
+                        os.remove(target_xml)
+                    os.rename(layer_xml, target_xml)
+                    msg = f"Metadata file moved to '{target_xml}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move metadata file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            # Delete CSV file if successful
+            """
             try:
                 os.remove(csv_file)
                 msg = f"Imported '{os.path.basename(csv_file)}' successfully and deleted the file."
@@ -513,6 +569,7 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
                 msg = f"Imported but could not delete CSV file: {e}"
                 print(msg)
                 save_progress_message(user_name, process_id, msg)
+            """
         # Send alert to user
         alert_text = error_message if error_message else f"Meteostation import finished successfully."
         try:
@@ -529,6 +586,7 @@ def import_meteo_stations_background(csv_file, config_path, sql_path, user_name)
             print(f"Could not send alert: {e}")
         # Final progress message and cleanup
         save_progress_message(user_name, process_id, "process finished")
+        time.sleep(3)  # Wait 3 seconds before clearing messages to ensure frontend has time to fetch final messages
         clear_progress_messages(user_name, process_id)
     except Exception as e:
         msg = f"Background process error: {e}"
@@ -541,19 +599,28 @@ def import_meteo_stations_stream():
     csv_filename = request.form.get('csv_filename')
     if not csv_filename:
         return jsonify({'status': 'error', 'message': 'No CSV filename provided.'}), 400
+    
+    product_json_name = request.form.get('product_json')
+    layer_xml_name = request.form.get('layer_xml')
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     csv_file = os.path.join(project_root, 'fileExchange', 'uploads', csv_filename)
     config_path = os.path.join(project_root, 'config', 'config.ini')
     sql_path = os.path.join(project_root, 'DB_Scripts', 'meteo_stations.sql')
+    metadata_folder = os.path.join(project_root, 'metadata')
     user_name = session.get('admin_username')
 
     if not os.path.isfile(csv_file):
         return jsonify({'status': 'error', 'message': f"CSV file '{csv_filename}' not found."}), 400
 
+
+    # Build full paths for product_json and layer_xml if provided
+    product_json = os.path.join(project_root, 'fileExchange', 'uploads', product_json_name) if product_json_name else None
+    layer_xml = os.path.join(project_root, 'fileExchange', 'uploads', layer_xml_name) if layer_xml_name else None
+
     thread = threading.Thread(
         target=import_meteo_stations_background,
-        args=(csv_file, config_path, sql_path, user_name)
+        args=(csv_file, config_path, sql_path, product_json, layer_xml, metadata_folder, user_name)
     )
     thread.start()
 
@@ -569,14 +636,14 @@ def import_meteo_stations_stream():
 def admin_layer_creation():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
-    nc_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.nc')]
+    layer_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.nc') or f.lower().endswith('.tif') or f.lower().endswith('.tiff')]
     json_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.json')]
     xml_files = [f for f in os.listdir(upload_folder) if f.lower().endswith('.xml')]
     message = None
 
     return render_template(
         'admin_layer_creation.html',
-        nc_files=nc_files,
+        layer_files=layer_files,
         json_files=json_files,
         xml_files=xml_files,
         message=message
@@ -612,15 +679,6 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
         action = "addition" if add_to_table else "creation"
         if success:
             msg_action = "edited" if add_to_table else "created"
-            try:
-                os.remove(nc_file)
-                msg = f"Layer {msg_action} and file '{os.path.basename(nc_file)}' deleted."
-                print(msg)
-                save_progress_message(user_name, process_id, msg)
-            except Exception as e:
-                msg = f"Layer {msg_action} but could not delete file: {e}"
-                print(msg)
-                save_progress_message(user_name, process_id, msg)
             # Move product info JSON
             if product_json:
                 try:
@@ -664,6 +722,7 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
             cur.close()
             close_db_connection(conn)
             # Delete all progress messages for this process
+            time.sleep(3)  # Wait 3 seconds before clearing
             clear_progress_messages(user_name, process_id)
         except Exception as e:
             print(f"Could not send alert: {e}")
@@ -671,16 +730,22 @@ def layer_creation_background(nc_file, layer_name, value_dim, time_dim, lon_dim,
         msg = f"Background process error: {e}"
         print(msg)
         save_progress_message(user_name, process_id, msg)
+    finally:
+        # Always write END at the end of the process
+        try:
+            save_progress_message(user_name, process_id, "**END**")
+        except Exception as e:
+            print(f"Could not write END message: {e}")
 
 @app.route('/admin/create_layer_stream', methods=['POST'])
 @admin_required
 def create_layer_stream():
-    nc_filename = request.form.get('nc_filename')
+    layer_file = request.form.get('layer_file')
     layer_name = request.form.get('layer_name')
-    value_dim = request.form.get('value_dim')
     time_dim = request.form.get('time_dim')
     lon_dim = request.form.get('lon_dim')
     lat_dim = request.form.get('lat_dim')
+    value_dim = request.form.get('value_dim')
     product_json_name = request.form.get('product_json')
     layer_xml_name = request.form.get('layer_xml')
     add_to_table = request.form.get('add_to_table', 'false') == 'true'
@@ -688,7 +753,7 @@ def create_layer_stream():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
     metadata_folder = os.path.join(project_root, 'metadata')
-    nc_file = os.path.join(upload_folder, nc_filename)
+    nc_file = os.path.join(upload_folder, layer_file)
     product_json = os.path.join(upload_folder, product_json_name) if product_json_name else None
     layer_xml = os.path.join(upload_folder, layer_xml_name) if layer_xml_name else None
     config_path = os.path.join(project_root, 'config', 'config.ini')
@@ -704,6 +769,105 @@ def create_layer_stream():
     # Immediately respond to the client
     return jsonify({'status': 'started', 'message': 'Layer creation started in background. You will receive an alert when it finishes.'})
 
+####
+#### Background layer creation process from GeoTIFF file
+#### 
+
+def layer_creation_tif_background(tif_file, layer_name, config_path, add_to_table, user_name, metadata_folder=None, product_json=None, layer_xml=None):
+    process_id = f"layer_creation:{layer_name}"
+    clear_progress_messages(user_name, process_id)
+    error_message = None
+    success = True
+    try:
+        from src.create_layer_tif import read_geotiff_file_stream
+        for message in read_geotiff_file_stream(
+            tif_file,
+            layer_name,
+            config_path=config_path,
+            add_to_table=add_to_table
+        ):
+            print(message)
+            save_progress_message(user_name, process_id, message)
+            if message.startswith("Error"):
+                error_message = message
+                success = False
+        # Move product info JSON and layer metadata XML if provided and successful
+        if success and metadata_folder:
+            if product_json:
+                try:
+                    target_json = os.path.join(metadata_folder, f"{layer_name}.json")
+                    os.rename(product_json, target_json)
+                    msg = f"Product info file moved to '{target_json}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move product info file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+            if layer_xml:
+                try:
+                    target_xml = os.path.join(metadata_folder, f"{layer_name}.xml")
+                    os.rename(layer_xml, target_xml)
+                    msg = f"Metadata file moved to '{target_xml}'."
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+                except Exception as e:
+                    msg = f"Could not move metadata file: {e}"
+                    print(msg)
+                    save_progress_message(user_name, process_id, msg)
+        msg = f"Layer creation from GeoTIFF {'finished successfully.' if success else 'failed: ' + str(error_message)}"
+        save_progress_message(user_name, process_id, msg)
+        alert_text = msg
+    except Exception as e:
+        alert_text = f"Background process error: {e}"
+        save_progress_message(user_name, process_id, alert_text)
+    finally:
+        # Always write END at the end of the process
+        try:
+            save_progress_message(user_name, process_id, "**END**")
+        except Exception as e:
+            print(f"Could not write END message: {e}")
+    # Send alert to user
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO alerts (user_name, alert_text) VALUES (%s, %s)",
+            (user_name, alert_text[:300])
+        )
+        conn.commit()
+        cur.close()
+        close_db_connection(conn)
+        time.sleep(3)  # Wait 3 seconds before clearing
+        clear_progress_messages(user_name, process_id)
+    except Exception as e:
+        print(f"Could not send alert: {e}")    
+
+@app.route('/admin/create_layer_tif_stream', methods=['POST'])
+@admin_required
+def create_layer_tif_stream():
+    layer_file = request.form.get('layer_file')
+    layer_name = request.form.get('layer_name')
+    add_to_table = request.form.get('add_to_table', 'false') == 'true'
+    product_json_name = request.form.get('product_json')
+    layer_xml_name = request.form.get('layer_xml')
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    upload_folder = os.path.join(project_root, 'fileExchange', 'uploads')
+    metadata_folder = os.path.join(project_root, 'metadata')
+    tif_file = os.path.join(upload_folder, layer_file)
+    product_json = os.path.join(upload_folder, product_json_name) if product_json_name else None
+    layer_xml = os.path.join(upload_folder, layer_xml_name) if layer_xml_name else None
+    config_path = os.path.join(project_root, 'config', 'config.ini')
+    user_name = session.get('admin_username')
+
+    thread = threading.Thread(
+        target=layer_creation_tif_background,
+        args=(tif_file, layer_name, config_path, add_to_table, user_name, metadata_folder, product_json, layer_xml)
+    )
+    thread.start()
+
+    return jsonify({'status': 'started', 'message': 'Layer creation from GeoTIFF started in background. You will receive an alert when it finishes.'})
+
 ############################################################
 # Tile seeding
 ############################################################
@@ -711,6 +875,27 @@ def create_layer_stream():
 @admin_required
 def admin_seed_layer():
     message = None
+    # Get published layers from GeoServer workspace
+    config = load_config()
+    layers = []
+    try:
+        geoserver_url = config['base'].get('geoserver_url', '').rstrip('/')
+        workspace = config['geoserver'].get('workspace', '')
+        username = config['geoserver'].get('username', '')
+        password = config['geoserver'].get('password', '')
+        rest_url = f"{geoserver_url}/rest/workspaces/{workspace}/layers.json"
+        resp = requests.get(rest_url, auth=(username, password), timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            published_layers = [l['name'] for l in data.get('layers', {}).get('layer', [])]
+            # Exclude grid layers
+            grid_names = set()
+            if 'grids' in config:
+                grid_names = set(config['grids'].values())
+            layers = [lname for lname in published_layers if lname not in grid_names]
+    except Exception as e:
+        print(f"Could not fetch layers from GeoServer: {e}")
+
     if request.method == 'POST':
         layer = request.form.get('layer')
         zoom_start = int(request.form.get('zoom_start', 3))
@@ -720,19 +905,107 @@ def admin_seed_layer():
             message = f"Seeding started for layer '{layer}' (zoom {zoom_start}-{zoom_stop})."
         except Exception as e:
             message = f"Error: {e}"
-    return render_template('admin_seed_layer.html', message=message)
+    return render_template('admin_seed_layer.html', message=message, layers=layers)
+
+# =============================
+# Admin: Layer Status Overview
+# =============================
+@app.route('/admin/layers')
+@admin_required
+def admin_layers():
+    # 1. Layers from config.ini
+    config = load_config()
+    config_layers = set()
+    if 'map' in config and 'layers' in config['map']:
+        config_layers = set(l.strip() for l in config['map']['layers'].split(',') if l.strip())
+
+    # Get grid layer names from [grids] section
+    grid_names = set()
+    if 'grids' in config:
+        grid_names = set(config['grids'].values())
+
+    # 2. Layers from database (views, except geography_columns and geometry_columns)
+    db_views = set()
+    db_tables = set()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT table_name FROM information_schema.views WHERE table_schema='public' AND table_name NOT IN ('geography_columns', 'geometry_columns')")
+        db_views = set(row[0] for row in cur.fetchall())
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+        db_tables = set(row[0] for row in cur.fetchall())
+        cur.close()
+        close_db_connection(conn)
+    except Exception as e:
+        print(f"DB error: {e}")
+
+    # 3. Layers from GeoServer (published in workspace)
+    gs_layers = set()
+    try:
+        geoserver_url = config['base'].get('geoserver_url', '').rstrip('/')
+        workspace = config['geoserver'].get('workspace', '')
+        username = config['geoserver'].get('username', '')
+        password = config['geoserver'].get('password', '')
+        rest_url = f"{geoserver_url}/rest/workspaces/{workspace}/layers.json"
+        resp = requests.get(rest_url, auth=(username, password), timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            gs_layers = set(l['name'] for l in data.get('layers', {}).get('layer', []))
+    except Exception as e:
+        print(f"GeoServer error: {e}")
+
+    # 4. Union of all layer names, excluding grids
+    all_layers = sorted((config_layers | db_views | gs_layers) - grid_names)
+
+    # Map layer name to topic (from config)
+    layer_to_topic = {}
+    for section in config.sections():
+        if section in config_layers and 'topic' in config[section]:
+            layer_to_topic[section] = config[section]['topic']
+
+    layers_info = []
+    for lname in all_layers:
+        # Only if declared in config and topic is facilities, check both views and tables
+        if lname in config_layers and layer_to_topic.get(lname) == 'facilities':
+            # Special case for meteostations and facility layers which can be a table
+            in_db = (lname in db_views) or (lname in db_tables) or (lname == 'meteo_stations' and 'meteostation_month_data' in db_tables)  
+        else:
+            in_db = lname in db_views
+        layers_info.append({
+            'name': lname,
+            'in_config': lname in config_layers,
+            'in_db': in_db,
+            'in_geoserver': lname in gs_layers
+        })
+    return render_template('admin_layers.html', layers_info=layers_info)
 
 ############################################################
 # Export data to NetCDF
 ############################################################
-def export_table_background(user_name, table_name, init_date, end_date, bbox, output_filename):
+def export_table_background(user_name, table_name, init_date, end_date, bbox, output_filename, format):
     process_id = f"export_table:{table_name}"
     clear_progress_messages(user_name, process_id)
     try:
         conn = get_db_connection()
-        for message in export_table_to_netcdf(conn, table_name, 'grid_025dd', 0.25, init_date, end_date, bbox, output_filename):
-            print(message)
-            save_progress_message(user_name, process_id, message)
+        grid_name = get_existing_grid_table(conn,table_name)
+        print(f"Using grid '{grid_name}' for export.")
+        if format == ".nc":
+            msg = f"Exporting to NetCDF format."
+            print(msg) 
+            save_progress_message(user_name, process_id, msg)
+            for message in export_table_to_netcdf(conn, table_name, init_date, end_date, bbox, output_filename):
+                print(message)
+                save_progress_message(user_name, process_id, message)
+        elif format == ".tif":    
+            msg = f"Exporting to GeoTIFF format "
+            print(msg)
+            save_progress_message(user_name, process_id, msg)
+            for message in export_table_to_geotiff(conn, table_name, init_date, end_date, bbox, output_filename):
+                print(message)
+                save_progress_message(user_name, process_id, message)
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+        
         close_db_connection(conn)
         msg = f"Export finished. File: {output_filename}"
         print(msg)
@@ -768,12 +1041,18 @@ def export_table(table_name):
     bbox = request.json.get("bbox") 
     if bbox == {}:
         bbox = None
-    output_filename = request.json.get("output_filename") or f"{table_name}_{init_date}_{end_date}.nc"
+    format = request.json.get("format") or ".nc"
+
+    if request.json.get("output_filename") is None:
+        output_filename = f"{table_name}_{init_date}_{end_date}{format}"
+    else:
+        output_filename = f"{request.json.get('output_filename')}{format}"
+
     user_name = session.get('admin_username')
 
     thread = threading.Thread(
         target=export_table_background,
-        args=(user_name, table_name, init_date, end_date, bbox, output_filename)
+        args=(user_name, table_name, init_date, end_date, bbox, output_filename, format)
     )
     thread.start()
 
@@ -855,7 +1134,7 @@ def clim_chart(layer, lat, lon):
         geoserver_url = get_key_config('base').get('geoserver_url')
         username = get_key_config('geoserver').get('username')
         password = get_key_config('geoserver').get('password')
-        workspace = "droughts"  # Change if your workspace is different
+        workspace = get_key_config('geoserver').get('workspace', 'droughts')
 
         # 1. Get the style name for the layer
         layer_info_url = f"{geoserver_url}/rest/layers/{workspace}:{layer}.json"

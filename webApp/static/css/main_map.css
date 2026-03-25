@@ -243,7 +243,7 @@ input[type="range"]::-ms-tooltip {
 
 /* --- LAYER CONTROLS --- */
 .layer-control-row {
-    display: flex;
+    display: block;
     align-items: center;
     gap: 8px;
     margin-bottom: 5px;
@@ -300,6 +300,7 @@ input[type="range"]::-ms-tooltip {
     font-size: 0.95em;
     padding: 2px 8px;
     cursor: pointer;
+    margin: 5px;
 }
 .legend-toggle-btn:hover {
     background: #1a2733;
@@ -525,4 +526,38 @@ input[type="range"]::-ms-tooltip {
     display: block !important;
     padding: 0;
     background: transparent;
+}
+
+#custom-zoom-in-btn{
+    margin: 0px;
+    border-radius: 5px 5px 0px 0px;
+    border-bottom-color: white !important;
+    border-bottom-width: 1px !important;
+    border-bottom-style: solid !important;
+}
+
+#custom-zoom-out-btn{
+    margin: 0px;
+    border-radius: 0px 0px 5px 5px;
+}
+
+#custom-zoom-in-btn, #custom-zoom-out-btn {
+    height: 35px;
+    width: 40px;
+    background: #888;
+    color: #fff;
+    border: none;
+    /*border-radius: 4px;*/
+    font-size: 1.2em;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(44,62,80,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /*margin-bottom: 2px;*/
+    transition: background 0.2s;
+}
+#custom-zoom-in-btn:hover, #custom-zoom-out-btn:hover {
+    background: #2b3e50;
 }

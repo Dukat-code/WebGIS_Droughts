@@ -14,30 +14,56 @@
     margin-top: 10px;
 }
 </style>
-<h2>Layer Creation (Admin)</h2>
-<form id="layerForm">
-    <label for="nc_filename">Select NetCDF file:</label>
-    <select name="nc_filename" id="nc_filename" required>
-        {% for file in nc_files %}
+<h2>Layer Creation </h2>
+<style>
+    .aligned-form label {
+        display: inline-block;
+        width: 170px;
+        text-align: right;
+        margin-right: 12px;
+        margin-bottom: 10px;
+        vertical-align: top;
+    }
+    .aligned-form input[type="text"],
+    .aligned-form select {
+        width: 220px;
+        padding: 5px;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+    }
+    .aligned-form #nc_fields label,
+    .aligned-form #nc_fields input[type="text"] {
+        margin-bottom: 10px;
+    }
+    .aligned-form input[type="checkbox"] {
+        margin-left: 0;
+    }
+</style>
+<form id="layerForm" class="aligned-form">
+    <label for="layer_file">Select layer file:</label>
+    <select name="layer_file" id="layer_file" required>
+        {% for file in layer_files %}
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
     <label for="layer_name">Layer Name:</label>
     <input type="text" name="layer_name" id="layer_name" required>
-    <br><br>
-    <label for="value_dim">Value Variable:</label>
-    <input type="text" name="value_dim" id="value_dim" required>
-    <br><br>
-    <label for="time_dim">Time Dimension:</label>
-    <input type="text" name="time_dim" id="time_dim" required>
-    <br><br>
-    <label for="lon_dim">Longitude Dimension:</label>
-    <input type="text" name="lon_dim" id="lon_dim" required>
-    <br><br>
-    <label for="lat_dim">Latitude Dimension:</label>
-    <input type="text" name="lat_dim" id="lat_dim" required>
-    <br><br>
+    <br>
+    <div id="nc_fields">
+        <label for="value_dim">Value Variable:</label>
+        <input type="text" name="value_dim" id="value_dim">
+        <br>
+        <label for="time_dim">Time Dimension:</label>
+        <input type="text" name="time_dim" id="time_dim">
+        <br>
+        <label for="lon_dim">Longitude Dimension:</label>
+        <input type="text" name="lon_dim" id="lon_dim">
+        <br>
+        <label for="lat_dim">Latitude Dimension:</label>
+        <input type="text" name="lat_dim" id="lat_dim">
+        <br>
+    </div>
     <label for="product_json">Product Info (.json):</label>
     <select name="product_json" id="product_json">
         <option value="">--None--</option>
@@ -45,7 +71,7 @@
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
     <label for="layer_xml">Layer Metadata (.xml):</label>
     <select name="layer_xml" id="layer_xml">
         <option value="">--None--</option>
@@ -53,16 +79,21 @@
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
-    <input type="checkbox" name="add_to_table" id="add_to_table" value="true">
-    <label for="add_to_table">Add data to existing layer</label>
-    <br><br>
-    <button type="submit" id="createLayerBtn">Create Layer</button>
+    <br>
+    <script>
+    
+    </script>
+    <label></label><input type="checkbox" name="add_to_table" id="add_to_table" value="true" style="width:auto;">
+    <label for="add_to_table" style="width:auto;text-align:left;display:inline;">Add data to existing layer</label>
+    <br>
+    <label></label><button type="submit" id="createLayerBtn">Create Layer</button>
 </form>
 <div id="progress" style="margin-bottom:20px;color:blue;"></div>
 <script>
 let pollingInterval = null;
 
+document.getElementById('layer_file').addEventListener('change', updateNcFieldsVisibility);
+window.addEventListener('DOMContentLoaded', updateNcFieldsVisibility);
 function pollProgress(processId) {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(function() {
@@ -73,10 +104,10 @@ function pollProgress(processId) {
                 progressDiv.innerText = data.messages.join('\n');
                 progressDiv.scrollTop = progressDiv.scrollHeight;
                 // Stop polling if process is finished
-                if (data.messages.length > 0 && (
-                    data.messages[data.messages.length-1].includes("Layer creation completed.") ||
-                    data.messages[data.messages.length-1].includes("Layer creation failed")
-                )) {
+                if (data.messages.length > 0 && 
+                    (data.messages[data.messages.length-1].includes("**END**") ||
+                        data.messages[data.messages.length-1].includes("(100.0%)"))
+                ) {
                     clearInterval(pollingInterval);
                     document.getElementById('createLayerBtn').disabled = false;
                 }
@@ -84,11 +115,15 @@ function pollProgress(processId) {
     }, 2000); // Poll every 2 seconds
 }
 
-document.getElementById('layerForm').onsubmit = function(e) {
-    e.preventDefault();
+function startProcess(){
     var createBtn = document.getElementById('createLayerBtn');
     createBtn.disabled = true;
     document.getElementById('progress').innerText = "Starting layer creation...";
+}
+
+document.getElementById('layerForm').onsubmit = function(e) {
+    e.preventDefault();
+    
     const formData = new FormData(e.target);
     if (!document.getElementById('add_to_table').checked) {
         formData.set('add_to_table', 'false');
@@ -96,22 +131,63 @@ document.getElementById('layerForm').onsubmit = function(e) {
     // Get processId for polling
     const layerName = document.getElementById('layer_name').value;
     const processId = 'layer_creation:' + layerName;
-    // Start polling for progress
-    pollProgress(processId);
+    
     // Start the background process
-    fetch("{{ url_for('create_layer_stream') }}", {
-        method: "POST",
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Optionally handle immediate response
-    })
-    .catch(() => {
-        document.getElementById('progress').innerText += "\nError starting layer creation.";
-        createBtn.disabled = false;
-        if (pollingInterval) clearInterval(pollingInterval);
-    });
+    if(document.getElementById('nc_fields').style.display === 'none'){
+        if(confirm("Starting GeoTIFF layer creation. This may take a while. Progress messages will appear below")){
+            startProcess();
+            // Start polling for progress
+            pollProgress(processId);
+            fetch("{{ url_for('create_layer_tif_stream') }}", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Optionally handle immediate response
+            })
+            .catch(() => {
+                document.getElementById('progress').innerText += "\nError starting GeoTIFF layer creation";
+                createBtn.disabled = false;
+                if (pollingInterval) clearInterval(pollingInterval);
+            });
+        }
+    } else {
+        if(confirm("Starting NetCDF layer creation. This may take a while. Progress messages will appear below.")){
+            startProcess();
+            // Start polling for progress
+            pollProgress(processId);
+            fetch("{{ url_for('create_layer_stream') }}", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Optionally handle immediate response
+            })
+            .catch(() => {
+                document.getElementById('progress').innerText += "\nError starting layer creation.";
+                createBtn.disabled = false;
+                if (pollingInterval) clearInterval(pollingInterval);
+            });
+        }
+    }
 };
+
+// Hide/show NetCDF fields based on file extension and set required attribute
+function updateNcFieldsVisibility() {
+    var layerFile = document.getElementById('layer_file').value;
+    var ncFields = document.getElementById('nc_fields');
+    var ncInputs = ncFields.querySelectorAll('input');
+    if (layerFile.match(/\.(tif|tiff)$/i)) {
+        ncFields.style.display = 'none';
+        ncInputs.forEach(function(input) { input.removeAttribute('required'); });
+    } else {
+        ncFields.style.display = '';
+        ncInputs.forEach(function(input) { input.setAttribute('required', 'required'); });
+    }
+}
+document.getElementById('layer_file').addEventListener('change', updateNcFieldsVisibility);
+window.addEventListener('DOMContentLoaded', updateNcFieldsVisibility);
 </script>
 {% endblock %}

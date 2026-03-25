@@ -9,36 +9,28 @@
         <div class="dashboard">
             <div class="ctrlPanel">
                 <div class="control">
-                    <label class="title">From Year</label>
+                    <label class="title">From </label>
                     <input type="range" id="yearFromSlider">
                     <input type="text" id="yearFrom" class="year" readonly>
-                </div>
-                <div class="control">
-                    <label class="title">To Year</label>
-                    <input type="range" id="yearToSlider">
-                    <input type="text" id="yearTo" class="year" readonly>
-                </div>
-                <div class="control">
-                    <label class="title">From Month</label>
                     <input type="range" id="monthFromSlider" min="0" max="11" value="0">
                     <input type="text" id="monthFrom" class="month" readonly>
+                    <span id="dekadFromControl" style="display:none;">
+                        <input type="range" min="0" max="2" value="0" class="slider" id="dekadFromSlider">
+                        <input type="text" id="dekadFromLabel" class="dekad" value="Dekad: 1 (Days 1-10)" readonly>
+                    </span>
                 </div>
                 <div class="control">
-                    <label class="title">To Month</label>
+                    <label class="title">To </label>
+                    <input type="range" id="yearToSlider">
+                    <input type="text" id="yearTo" class="year" readonly>
                     <input type="range" id="monthToSlider" min="0" max="11" value="11">
                     <input type="text" id="monthTo" class="month" readonly>
+                    <span id="dekadToControl" style="display:none;">
+                        <input type="range" min="0" max="2" value="2" class="slider" id="dekadToSlider">
+                        <input type="text" id="dekadToLabel" class="dekad" value="Dekad: 3 (Days 21-end)" readonly>
+                    </span>
                 </div>
-                <div class="control" id="dekadFromControl" style="display:none;">
-                    <label class="title">From Dekad</label>
-                    <input type="range" min="0" max="2" value="0" class="slider" id="dekadFromSlider">
-                    <span id="dekadFromLabel">Dekad: 1 (Days 1-10)</span>
-                </div>
-                <div class="control" id="dekadToControl" style="display:none;">
-                    <label class="title">To Dekad</label>
-                    <input type="range" min="0" max="2" value="2" class="slider" id="dekadToSlider">
-                    <span id="dekadToLabel">Dekad: 3 (Days 21-end)</span>
-                </div>
-                <button class="setButton" id="seeButton">See Data</button>
+                <button class="setButton" id="seeButton">Update Chart</button>
                 <button id="downloadCSVBtn" class="downloadCSVBtn">Download CSV</button>
             </div>
             <div class="chart">
