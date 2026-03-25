@@ -57,7 +57,8 @@ def seed_tiles_for_date(layer_name, date_str, zoom_start, zoom_stop):
         print(f"Error on seeding init for {date_str}: {response.status_code} - {response.text}")
 
 def seed_layer_tiles(layer, zoom_start=3, zoom_stop=8):
-    layer_name = f"droughts:{layer}"
+    workspace = config.get('geoserver', 'workspace', fallback='droughts')
+    layer_name = f"{workspace}:{layer}"
     conn = psycopg2.connect(**dict(config.items('database')))
     dates = get_dates_from_db(conn, layer)
     conn.close()

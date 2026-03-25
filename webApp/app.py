@@ -861,6 +861,27 @@ def create_layer_tif_stream():
 @admin_required
 def admin_seed_layer():
     message = None
+    # Get published layers from GeoServer workspace
+    config = load_config()
+    layers = []
+    try:
+        geoserver_url = config['base'].get('geoserver_url', '').rstrip('/')
+        workspace = config['geoserver'].get('workspace', '')
+        username = config['geoserver'].get('username', '')
+        password = config['geoserver'].get('password', '')
+        rest_url = f"{geoserver_url}/rest/workspaces/{workspace}/layers.json"
+        resp = requests.get(rest_url, auth=(username, password), timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            published_layers = [l['name'] for l in data.get('layers', {}).get('layer', [])]
+            # Exclude grid layers
+            grid_names = set()
+            if 'grids' in config:
+                grid_names = set(config['grids'].values())
+            layers = [lname for lname in published_layers if lname not in grid_names]
+    except Exception as e:
+        print(f"Could not fetch layers from GeoServer: {e}")
+
     if request.method == 'POST':
         layer = request.form.get('layer')
         zoom_start = int(request.form.get('zoom_start', 3))
@@ -870,7 +891,7 @@ def admin_seed_layer():
             message = f"Seeding started for layer '{layer}' (zoom {zoom_start}-{zoom_stop})."
         except Exception as e:
             message = f"Error: {e}"
-    return render_template('admin_seed_layer.html', message=message)
+    return render_template('admin_seed_layer.html', message=message, layers=layers)
 
 ############################################################
 # Export data to NetCDF
@@ -1027,7 +1048,7 @@ def clim_chart(layer, lat, lon):
         geoserver_url = get_key_config('base').get('geoserver_url')
         username = get_key_config('geoserver').get('username')
         password = get_key_config('geoserver').get('password')
-        workspace = "droughts"  # Change if your workspace is different
+        workspace = get_key_config('geoserver').get('workspace', 'droughts')
 
         # 1. Get the style name for the layer
         layer_info_url = f"{geoserver_url}/rest/layers/{workspace}:{layer}.json"
