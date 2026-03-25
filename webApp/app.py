@@ -344,6 +344,19 @@ def admin_config():
                 config.write(f)
             message = "Configuration updated successfully."
 
+            # Reload config from disk after saving
+            config = configparser.ConfigParser()
+            config.read(config_path)
+            filtered_config = configparser.ConfigParser()
+            for section in config.sections():
+                if section == 'database' or section == 'geoserver':
+                    continue
+                filtered_config.add_section(section)
+                for key, value in config.items(section):
+                    if section == 'base' and key == 'base_url':
+                        continue
+                    filtered_config.set(section, key, value)
+
     # Prepare config text for textarea
     from io import StringIO
     output = StringIO()
