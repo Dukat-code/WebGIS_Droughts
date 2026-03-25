@@ -1,0 +1,24 @@
+{% extends "admin_dashboard.html" %}
+{% block content %}
+<h2>Layer Status Overview</h2>
+<table border="1" cellpadding="5" cellspacing="0">
+    <thead>
+        <tr>
+            <th>Layer name</th>
+            <th>In config file</th>
+            <th>In database</th>
+            <th>In geoserver</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in layers_info %}
+        <tr>
+            <td>{{ row.name }}</td>
+            <td>{{ '✔️' if row.in_config else '' }}</td>
+            <td>{{ '✔️' if row.in_db else '' }}</td>
+            <td>{{ '✔️' if row.in_geoserver else '' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

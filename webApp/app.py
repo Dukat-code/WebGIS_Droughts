@@ -1,3 +1,4 @@
+
 from flask import Flask, json, jsonify, render_template, Response, request, redirect, url_for, session, stream_with_context
 from flask_cors import CORS
 from waitress import serve
@@ -892,6 +893,78 @@ def admin_seed_layer():
         except Exception as e:
             message = f"Error: {e}"
     return render_template('admin_seed_layer.html', message=message, layers=layers)
+
+# =============================
+# Admin: Layer Status Overview
+# =============================
+@app.route('/admin/layers')
+@admin_required
+def admin_layers():
+    # 1. Layers from config.ini
+    config = load_config()
+    config_layers = set()
+    if 'map' in config and 'layers' in config['map']:
+        config_layers = set(l.strip() for l in config['map']['layers'].split(',') if l.strip())
+
+    # Get grid layer names from [grids] section
+    grid_names = set()
+    if 'grids' in config:
+        grid_names = set(config['grids'].values())
+
+    # 2. Layers from database (views, except geography_columns and geometry_columns)
+    db_views = set()
+    db_tables = set()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT table_name FROM information_schema.views WHERE table_schema='public' AND table_name NOT IN ('geography_columns', 'geometry_columns')")
+        db_views = set(row[0] for row in cur.fetchall())
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+        db_tables = set(row[0] for row in cur.fetchall())
+        cur.close()
+        close_db_connection(conn)
+    except Exception as e:
+        print(f"DB error: {e}")
+
+    # 3. Layers from GeoServer (published in workspace)
+    gs_layers = set()
+    try:
+        geoserver_url = config['base'].get('geoserver_url', '').rstrip('/')
+        workspace = config['geoserver'].get('workspace', '')
+        username = config['geoserver'].get('username', '')
+        password = config['geoserver'].get('password', '')
+        rest_url = f"{geoserver_url}/rest/workspaces/{workspace}/layers.json"
+        resp = requests.get(rest_url, auth=(username, password), timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            gs_layers = set(l['name'] for l in data.get('layers', {}).get('layer', []))
+    except Exception as e:
+        print(f"GeoServer error: {e}")
+
+    # 4. Union of all layer names, excluding grids
+    all_layers = sorted((config_layers | db_views | gs_layers) - grid_names)
+
+    # Map layer name to topic (from config)
+    layer_to_topic = {}
+    for section in config.sections():
+        if section in config_layers and 'topic' in config[section]:
+            layer_to_topic[section] = config[section]['topic']
+
+    layers_info = []
+    for lname in all_layers:
+        # Only if declared in config and topic is facilities, check both views and tables
+        if lname in config_layers and layer_to_topic.get(lname) == 'facilities':
+            # Special case for meteostations and facility layers which can be a table
+            in_db = (lname in db_views) or (lname in db_tables) or (lname == 'meteo_stations' and 'meteostation_month_data' in db_tables)  
+        else:
+            in_db = lname in db_views
+        layers_info.append({
+            'name': lname,
+            'in_config': lname in config_layers,
+            'in_db': in_db,
+            'in_geoserver': lname in gs_layers
+        })
+    return render_template('admin_layers.html', layers_info=layers_info)
 
 ############################################################
 # Export data to NetCDF
