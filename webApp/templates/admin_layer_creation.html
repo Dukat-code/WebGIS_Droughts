@@ -14,31 +14,55 @@
     margin-top: 10px;
 }
 </style>
-<h2>Layer Creation (Admin)</h2>
-<form id="layerForm">
+<h2>Layer Creation </h2>
+<style>
+    .aligned-form label {
+        display: inline-block;
+        width: 170px;
+        text-align: right;
+        margin-right: 12px;
+        margin-bottom: 10px;
+        vertical-align: top;
+    }
+    .aligned-form input[type="text"],
+    .aligned-form select {
+        width: 220px;
+        padding: 5px;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+    }
+    .aligned-form #nc_fields label,
+    .aligned-form #nc_fields input[type="text"] {
+        margin-bottom: 10px;
+    }
+    .aligned-form input[type="checkbox"] {
+        margin-left: 0;
+    }
+</style>
+<form id="layerForm" class="aligned-form">
     <label for="layer_file">Select layer file:</label>
     <select name="layer_file" id="layer_file" required>
         {% for file in layer_files %}
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
     <label for="layer_name">Layer Name:</label>
     <input type="text" name="layer_name" id="layer_name" required>
-    <br><br>
+    <br>
     <div id="nc_fields">
         <label for="value_dim">Value Variable:</label>
         <input type="text" name="value_dim" id="value_dim">
-        <br><br>
+        <br>
         <label for="time_dim">Time Dimension:</label>
         <input type="text" name="time_dim" id="time_dim">
-        <br><br>
+        <br>
         <label for="lon_dim">Longitude Dimension:</label>
         <input type="text" name="lon_dim" id="lon_dim">
-        <br><br>
+        <br>
         <label for="lat_dim">Latitude Dimension:</label>
         <input type="text" name="lat_dim" id="lat_dim">
-        <br><br>
+        <br>
     </div>
     <label for="product_json">Product Info (.json):</label>
     <select name="product_json" id="product_json">
@@ -47,7 +71,7 @@
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
     <label for="layer_xml">Layer Metadata (.xml):</label>
     <select name="layer_xml" id="layer_xml">
         <option value="">--None--</option>
@@ -55,14 +79,14 @@
             <option value="{{ file }}">{{ file }}</option>
         {% endfor %}
     </select>
-    <br><br>
+    <br>
     <script>
     
     </script>
-    <input type="checkbox" name="add_to_table" id="add_to_table" value="true">
-    <label for="add_to_table">Add data to existing layer</label>
-    <br><br>
-    <button type="submit" id="createLayerBtn">Create Layer</button>
+    <label></label><input type="checkbox" name="add_to_table" id="add_to_table" value="true" style="width:auto;">
+    <label for="add_to_table" style="width:auto;text-align:left;display:inline;">Add data to existing layer</label>
+    <br>
+    <label></label><button type="submit" id="createLayerBtn">Create Layer</button>
 </form>
 <div id="progress" style="margin-bottom:20px;color:blue;"></div>
 <script>
