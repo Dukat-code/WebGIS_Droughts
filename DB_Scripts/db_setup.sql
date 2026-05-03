@@ -24,7 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_grid_025dd_cell_geom ON grid_025dd USING GIST(cel
 CREATE TABLE IF NOT EXISTS admin_users (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    is_superuser BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS alerts (

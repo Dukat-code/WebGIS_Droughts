@@ -17,7 +17,9 @@
             margin-right: 10px;
         }
         .aligned-form input[type="text"],
-        .aligned-form input[type="password"] {
+        .aligned-form input[type="password"],
+        .aligned-form input[type="checkbox"] {
+            margin-left: 0;
             width: 220px;
             padding: 5px;
             box-sizing: border-box;
@@ -27,12 +29,13 @@
         }
     </style>
     <form method="post" class="aligned-form">
-        <label><span>Username:</span> <input type="text" name="username"></label>
-        <label><span>Password:</span> <input type="password" name="password"></label>
-        <br>
-        <button type="submit" name="action" value="create">Create User</button>
-        <button type="submit" name="action" value="delete">Delete User</button>
-        <button type="submit" name="action" value="change_password">Change Password</button>
+           <label><span>Username:</span> <input type="text" name="username"></label>
+           <label><span>Password:</span> <input type="password" name="password"></label>
+           <label><span>Superuser:</span> <input type="checkbox" name="is_superuser" style="width: 220px; height: 20px;"></label>
+           <br>
+           <button type="submit" name="action" value="create">Create User</button>
+           <button type="submit" name="action" value="delete">Delete User</button>
+           <button type="submit" name="action" value="change_password">Change Password</button>
     </form>
     <br>
 {% endblock %}

@@ -116,17 +116,17 @@ def clear_user_progress_messages(user_name):
 def get_admin_user(username):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, password_hash FROM admin_users WHERE username = %s", (username,))
+    cur.execute("SELECT id, username, password_hash, is_superuser FROM admin_users WHERE username = %s", (username,))
     user = cur.fetchone()
     cur.close()
     close_db_connection(conn)
     return user
 
-def create_admin_user(username, password):
+def create_admin_user(username, password, is_superuser=False):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO admin_users (username, password_hash) VALUES (%s, %s)", 
-                (username, generate_password_hash(password)))
+    cur.execute("INSERT INTO admin_users (username, password_hash, is_superuser) VALUES (%s, %s, %s)", 
+                (username, generate_password_hash(password), is_superuser))
     conn.commit()
     cur.close()
     close_db_connection(conn)
@@ -270,6 +270,7 @@ def admin_login():
         if user and check_password_hash(user[2], password):
             session['admin_logged_in'] = True
             session['admin_username'] = username
+            session['is_superuser'] = user[3]
             return redirect(url_for('admin_dashboard'))
         else:
             error = "Invalid username or password"
@@ -283,6 +284,7 @@ def admin_login():
 @admin_required
 def admin_dashboard():
     user_name = session.get('admin_username')
+    is_superuser = session.get('is_superuser')
     clear_user_progress_messages(user_name)
     conn = get_db_connection()
     cur = conn.cursor()
@@ -293,7 +295,7 @@ def admin_dashboard():
     ]
     cur.close()
     close_db_connection(conn)
-    return render_template('admin_dashboard_content.html', user_name=session.get('admin_username'), alerts=alerts)
+    return render_template('admin_dashboard_content.html', user_name=session.get('admin_username'), alerts=alerts, is_superuser=is_superuser)
 
 ####################################################
 # Administrative edition of configuration
@@ -376,8 +378,10 @@ def admin_users():
         action = request.form['action']
         username = request.form['username']
         password = request.form.get('password')
+        is_superuser = request.form.get('is_superuser')
+        print(f"Action: {action}, Username: {username}, Is Superuser: {is_superuser}")
         if action == 'create':
-            create_admin_user(username, password)
+            create_admin_user(username, password, is_superuser)
             message = f"User {username} created."
         elif action == 'delete':
             delete_admin_user(username)
