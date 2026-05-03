@@ -47,9 +47,11 @@ class Map {
         });
         
         // Add layers
+        console.log("Adding layers from config:", cfg.layers);
          for (const layerName in cfg.layers) {
             this.addLayer(
                 layerName,
+                cfg.layers[layerName].title,
                 cfg.layers[layerName].url,
                 cfg.layers[layerName].get_feature_info_url ? cfg.layers[layerName].get_feature_info_url : cfg.get_feature_info_url,
                 cfg.layers[layerName].legend || '',
@@ -272,7 +274,7 @@ class Map {
      * @param {*} endDate
      * @param {*} dateFormat 
      */
-    addLayer(name, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, initDate, endDate, dateFormat='yyyy-mm') {
+    addLayer(name, title, url, getFeatureUrl, legend, info, topic, active, opacity, tms, time, initDate, endDate, dateFormat='yyyy-mm') {
         let layer;
         if(topic==='facilities'){
             // Special case for facilities: fetch GeoJSON and add as point layer
@@ -284,6 +286,7 @@ class Map {
                 tms: tms
             });
         }
+        layer.title = title || name;
         layer.info = info || '';
         layer.legend = legend || '';
         layer.timeseries = time;
@@ -581,7 +584,8 @@ class LayerWidget extends Widget {
             checkbox.setAttribute('data-layer', layerName);
 
             const label = document.createElement('label');
-            label.textContent = layerName;
+            console.log(`Rendering layer control for ${layerName}, title: ${layer.layerObj?.title || layerName}`);
+            label.textContent = layer.layerObj?.title || layerName;
             label.style.marginRight = '8px';
 
             // Timeline toggle
@@ -610,7 +614,7 @@ class LayerWidget extends Widget {
 
             // Example: legend as image
             if (layer.layerObj.legend) {
-                legendDiv.innerHTML = `<img src="${layer.layerObj.legend}" alt="Legend for ${layerName}" style="max-width:100%;">`;
+                legendDiv.innerHTML = `<img src="${layer.layerObj.legend}" alt="Legend for ${layer.layerObj?.title || layerName}" style="max-width:100%;">`;
             } else {
                 legendDiv.innerHTML = '<em>No legend available</em>';
             }
