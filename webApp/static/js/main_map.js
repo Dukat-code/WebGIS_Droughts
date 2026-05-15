@@ -450,7 +450,9 @@ class Map {
                 
                 // Add event listener to the button after the popup is rendered
                 setTimeout(() => {
-                    let title = `Data for ${activeLayer} at (${lat}, ${lon})`;
+                    console.log(this.layers);
+                    const layerTitle = this.layers[activeLayer].title || activeLayer;
+                    let title = `Data for ${layerTitle} at (${lat}, ${lon})`;
                     const btn = document.getElementById('modal-open-btn');
                     if (btn) {
                         btn.onclick = () => {
